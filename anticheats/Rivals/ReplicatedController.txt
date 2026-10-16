@@ -1,0 +1,144 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local ReplicatedClass = require(ReplicatedStorage.Modules.ReplicatedClass)
+local EnumLibrary = require(ReplicatedStorage.Modules.EnumLibrary)
+local Signal = require(ReplicatedStorage.Modules.Signal)
+local index = {}
+index.__index = index
+
+index.new = function(name)
+	assert(typeof(name) == "string", "Argument 1 invalid, expected a string, got " .. tostring(name))
+	local obj = setmetatable({}, index)
+	obj.Name = name
+	obj.Objects = {}
+	obj.CurrentObject = nil
+	obj.ObjectAdded = Signal.new()
+	obj.ObjectRemoved = Signal.new()
+	obj._remote_folder = ReplicatedStorage.Remotes.Replication:WaitForChild(obj.Name)
+	obj._stored_constructors = {}
+	obj._objects_requested = false
+	obj._reject_object_added_serial_callback = nil
+	obj:_Init()
+	return obj
+end
+
+index.GetObject = function(arg, arg2)
+	assert(typeof(arg2) == "string", "Argument 1 invalid, expected a string")
+
+	for k, object in pairs(arg.Objects) do
+		if object:Get("ObjectID") == arg2 then
+			return object, k
+		end
+	end
+end
+
+index._ObjectChanged = function(arg, arg2, arg3, ...)
+	assert(typeof(arg2) == "string", "Argument 1 invalid, expected a string")
+	assert(typeof(arg3) == "string", "Argument 2 invalid, expected a string")
+	local object = arg:GetObject(arg2)
+	if not object then
+		return
+	end
+	object:ReplicateFromServer(EnumLibrary:FromEnum(arg3) or arg3, ...)
+end
+
+index._ObjectAdded = function(arg, arg2)
+	assert(typeof(arg2) == "table", "Argument 1 invalid, expected a table")
+	if arg:GetObject(arg2[EnumLibrary:ToEnum("Data")][EnumLibrary:ToEnum("ObjectID")]) then
+		return
+	end
+	local v = arg2[EnumLibrary:ToEnum("ClientReplicatedClassType")]
+	local v2 = EnumLibrary:FromEnum(v) or v
+	local replicatedClass = ReplicatedClass:GetReplicatedClass(v2)
+	if arg._reject_object_added_serial_callback and arg._reject_object_added_serial_callback(arg2) then
+		return
+	end
+
+	if not arg._stored_constructors[v2] then
+		if typeof(replicatedClass) == "function" then
+			arg._stored_constructors[v2] = replicatedClass().new
+		else
+			arg._stored_constructors[v2] = replicatedClass.new
+		end
+	end
+
+	local v3 = arg._stored_constructors[v2](arg2)
+	table.insert(arg.Objects, v3)
+	arg.CurrentObject = v3
+	arg.ObjectAdded:Fire(v3)
+end
+
+index._ObjectRemoved = function(arg, arg2)
+	assert(typeof(arg2) == "string", "Argument 1 invalid, expected a string")
+	local object, v = arg:GetObject(arg2)
+	if not v then
+		return
+	end
+	table.remove(arg.Objects, v)
+	arg.ObjectRemoved:Fire(object)
+	object:Destroy()
+
+	if object == arg.CurrentObject then
+		arg.CurrentObject = nil
+	end
+end
+
+index._ObjectsRequested = function(arg, arg2)
+	arg._objects_requested = true
+	local v = pairs
+	arg2 = arg2 or {}
+
+	for _, v2 in v(arg2) do
+		task.spawn(arg._ObjectAdded, arg, v2)
+	end
+end
+
+index._Replicate = function(arg, arg2, ...)
+	local v = table.pack(...)
+	local v2 = EnumLibrary:FromEnum(arg2)
+
+	if v2 == "ReplicationRequest" then
+		arg:_ObjectsRequested(...)
+		if not arg._objects_requested then
+			return
+		end
+
+		if v2 == "ReplicationAdded" then
+			arg:_ObjectAdded(table.unpack(v, 1, v.n))
+		elseif v2 == "ReplicationChanged" then
+			arg:_ObjectChanged(table.unpack(v, 1, v.n))
+		elseif v2 == "ReplicationRemoved" then
+			arg:_ObjectRemoved(table.unpack(v, 1, v.n))
+		end
+	else
+		if not arg._objects_requested then
+			return
+		end
+
+		if v2 == "ReplicationAdded" then
+			arg:_ObjectAdded(...)
+		elseif v2 == "ReplicationChanged" then
+			arg:_ObjectChanged(...)
+		elseif v2 == "ReplicationRemoved" then
+			arg:_ObjectRemoved(...)
+		end
+	end
+end
+
+index._Setup = function(arg)
+	arg._remote_folder:WaitForChild("Replicate").OnClientEvent:Connect(function(...)
+		arg:_Replicate(...)
+	end)
+
+	arg._remote_folder:WaitForChild("ReplicateUnreliable").OnClientEvent:Connect(function(...)
+		arg:_Replicate(...)
+	end)
+
+	arg._remote_folder:WaitForChild("RequestReplication"):FireServer()
+end
+
+index._Init = function(arg)
+	task.delay(0, arg._Setup, arg)
+end
+
+return index

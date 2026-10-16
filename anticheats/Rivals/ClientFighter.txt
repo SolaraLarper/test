@@ -1,0 +1,2766 @@
+game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
+game:GetService("Lighting")
+local Players = game:GetService("Players")
+local CONSTANTS = require(ReplicatedStorage.Modules.CONSTANTS)
+local EntityLookupParams = require(ReplicatedStorage.Modules.EntityLookupParams)
+local CosmeticLibrary = require(ReplicatedStorage.Modules.CosmeticLibrary)
+local GameplayUtility = require(ReplicatedStorage.Modules.GameplayUtility)
+local ReplicatedClass = require(ReplicatedStorage.Modules.ReplicatedClass)
+local BetterDebris = require(ReplicatedStorage.Modules.BetterDebris)
+local SoundLibrary = require(ReplicatedStorage.Modules.SoundLibrary)
+local ServerOsTime = require(ReplicatedStorage.Modules.ServerOsTime)
+local ItemLibrary = require(ReplicatedStorage.Modules.ItemLibrary)
+local Utility = require(ReplicatedStorage.Modules.Utility)
+local Spring = require(ReplicatedStorage.Modules.Spring)
+local Signal = require(ReplicatedStorage.Modules.Signal)
+local PlayerDataController = require(Players.LocalPlayer.PlayerScripts.Controllers.PlayerDataController)
+local SpectateController = require(Players.LocalPlayer.PlayerScripts.Controllers.SpectateController)
+local ControlsController = require(Players.LocalPlayer.PlayerScripts.Controllers.ControlsController)
+local CameraController = require(Players.LocalPlayer.PlayerScripts.Controllers.CameraController)
+local EmoteController = require(Players.LocalPlayer.PlayerScripts.Controllers.EmoteController)
+local EliminatedEffect = require(Players.LocalPlayer.PlayerScripts.Modules.UserInterface.EliminatedEffect)
+local UILibrary = require(Players.LocalPlayer.PlayerScripts.Modules.UILibrary)
+local ClientFighterCharacter = require(script:WaitForChild("ClientFighterCharacter"))
+local QuickAttackSystem = require(script:WaitForChild("QuickAttackSystem"))
+local FighterInterface = require(script:WaitForChild("FighterInterface"))
+local ClientItem = require(script:WaitForChild("ClientItem"))
+local jobId = RunService:IsStudio() and "f54b33e5-1d3d-4452-987b-c7bfa443de8b" or game.JobId
+local immuneGui = Players.LocalPlayer.PlayerScripts.UserInterface.ImmuneGui
+local damageGui = Players.LocalPlayer.PlayerScripts.UserInterface.DamageGui
+local itemTypes = Players.LocalPlayer.PlayerScripts.Modules.ItemTypes
+local items = Players.LocalPlayer.PlayerScripts.Modules.Items
+local n = 0.1
+local index = setmetatable({}, ReplicatedClass)
+index.__index = index
+
+index.new = function(tempSerial)
+	local obj = setmetatable(ReplicatedClass.new(tempSerial), index)
+
+	for k, v in pairs(ReplicatedClass) do
+		if typeof(v) == "function" and not index[k] then
+			obj[k] = v
+		end
+	end
+
+	obj.ItemAdded = Signal.new()
+	obj.ItemRemoved = Signal.new()
+	obj.EquippedItemChanged = Signal.new()
+	obj.EntityAdded = Signal.new()
+	obj.EntityRemoved = Signal.new()
+	obj.Died = Signal.new()
+	obj.HealthChanged = Signal.new()
+	obj.InterfaceAdded = Signal.new()
+	obj.InterfaceRemoved = Signal.new()
+	obj.Elimination = Signal.new()
+	obj.Eliminated = Signal.new()
+	obj.StopSliding = Signal.new()
+	obj.InvincibilityChanged = Signal.new()
+	obj.Interrupted = Signal.new()
+	obj.Player = tempSerial.Player or Players:GetPlayerByUserId(tempSerial.UserID)
+	obj.IsLocalPlayer = obj.Player == Players.LocalPlayer
+	obj.Items = {}
+	obj.EquippedItem = nil
+	obj.Entity = nil
+	obj.FighterInterface = nil
+	obj.QuickAttackSystem = QuickAttackSystem.new(obj)
+	obj.IsSprintingLocally = false
+	obj.IsCrouchingLocally = false
+	obj.IsSlidingLocally = false
+	obj.LocalCameraLean = 0
+	obj.Data.CameraRotation = Vector2.zero
+	obj.Data.DecodedNetworkID = nil
+	obj.Data.IsSpectating = false
+	obj.Data.LocalEquippedItemID = obj:Get("EquippedItemID")
+	obj.Data.IsHiddenByEmotes = nil
+	obj.Data.IsHiddenByCutscene = nil
+	obj._temp_serial = tempSerial
+	obj._connections = {}
+	obj._sway_camera_rotations = {}
+	obj._sway_camera_rotation_update_time = 0
+	obj._camera_rotation_spring = Spring.new(Vector2.zero, 0.75, 20)
+	obj._equipped_client_items = {}
+	obj._num_equipped_client_items = 0
+	obj._equipped_items_connections = {}
+	obj._aim_speed = 1
+	obj._fov_offset = 0
+	obj._camera_rotation_offset = Vector2.zero
+	obj._last_camera_rotation = nil
+	obj._preloaded_sounds = {}
+	obj._center_mouse_location = Vector2.zero
+	obj._player_module = nil
+	obj._item_added_queue = {}
+	obj._damage_number_hashes = {}
+	obj._damage_number_totals = {}
+	obj._damage_number_guis = {}
+	obj._immune_damage_guis = {}
+	obj._last_immune_sfx = nil
+	obj._inputs_locked_from_emotes = 0
+	obj._equip_cooldown_from_emoting = 0
+	obj:_Init()
+	return obj
+end
+
+index.QuickAttackDown = function(arg, ...)
+	return arg.QuickAttackSystem:InputDown(...)
+end
+
+index.QuickAttackUp = function(arg, ...)
+	return arg.QuickAttackSystem:InputUp(...)
+end
+
+index.GetQuickAttackIndex = function(arg, ...)
+	return arg.QuickAttackSystem:GetQuickAttackIndex(...)
+end
+
+index.ShouldSkipEquipAnimation = function(arg, ...)
+	return arg.QuickAttackSystem:ShouldSkipEquipAnimation(...)
+end
+
+index.IsEquippingLockedByQuickAttacks = function(arg, ...)
+	return arg.QuickAttackSystem:IsEquippingLocked(...)
+end
+
+index.IsRendered = function(arg)
+	return CONSTANTS.SHOULD_ALWAYS_REPLICATE() or arg.IsLocalPlayer or SpectateController:IsRendered(arg:Get("EnvironmentID"))
+end
+
+index.IsActive = function(arg)
+	return arg:IsAlive() and (#arg.Items > 0 or arg:Get("IsInDuel"))
+end
+
+index.IsItemActive = function(arg, arg2)
+	return arg._equipped_client_items[arg2] and arg:Get("IsSpectating") and arg:IsAlive()
+end
+
+index.IsAlive = function(arg)
+	if arg.Entity then
+		return arg.Entity:IsAlive()
+	end
+end
+
+index.IsSprinting = function(arg)
+	local isSprintingLocally
+
+	if arg.IsLocalPlayer then
+		isSprintingLocally = arg.IsSprintingLocally
+	else
+		isSprintingLocally = arg:Get("IsSprinting")
+	end
+
+	return isSprintingLocally
+end
+
+index.IsCrouching = function(arg)
+	local isCrouchingLocally
+
+	if arg.IsLocalPlayer then
+		isCrouchingLocally = arg.IsCrouchingLocally
+	else
+		isCrouchingLocally = arg:Get("IsCrouching")
+	end
+
+	return isCrouchingLocally
+end
+
+index.IsSliding = function(arg)
+	local isSlidingLocally
+
+	if arg.IsLocalPlayer then
+		isSlidingLocally = arg.IsSlidingLocally
+	else
+		isSlidingLocally = arg:Get("IsSliding")
+	end
+
+	return isSlidingLocally
+end
+
+index.IsGrounded = function(arg)
+	if arg.Entity then
+		return arg.Entity:IsGrounded()
+	end
+end
+
+index.IsEmoting = function(arg)
+	return arg.Entity and arg.Entity:IsEmoting()
+end
+
+index.IsActuallyFirstPerson = function(arg)
+	return arg:Get("IsSpectating") and CameraController:GetPublicState() == CameraController.CameraState.States.FirstPerson
+end
+
+index.AreItemsLocked = function(arg)
+	return arg:Get("ItemsLocked") or arg.Entity and arg.Entity:Get("IsFrozen")
+end
+
+index.CanSlide = function(arg)
+	return (not arg.EquippedItem or not arg.EquippedItem.SlidingDisabled) and not arg:Get("DisableSliding")
+end
+
+index.CanSprint = function(arg)
+	return (not arg.EquippedItem or not arg.EquippedItem.SprintingDisabled) and not arg:Get("DisableSprinting")
+end
+
+index.CanUseWeapon = function(arg, ...)
+	return arg.IsLocalPlayer and GameplayUtility:CanUseWeapon(arg, PlayerDataController, ...)
+end
+
+index.GetHealth = function(arg)
+	return arg.Entity and arg.Entity:GetHealth() or 0
+end
+
+index.GetMaxHealth = function(arg)
+	return arg.Entity and arg.Entity:GetMaxHealth() or CONSTANTS.BASE_HEALTH
+end
+
+index.GetMaxEquippableWeapons = function(arg)
+	return arg:Get("ExternalMaxEquippableWeapons") or CONSTANTS.MAX_EQUIPPABLE_WEAPONS
+end
+
+index.GetMoveVector = function(arg, arg2, arg3, arg4)
+	local vector = arg4 or Vector3.zero
+	if not arg.IsLocalPlayer then
+		return vector
+	end
+
+	if not arg._player_module and Players.LocalPlayer.PlayerScripts:FindFirstChild("PlayerModule") then
+		arg._player_module = require(Players.LocalPlayer.PlayerScripts.PlayerModule)
+	end
+
+	if not arg._player_module then
+		return vector
+	end
+	local moveVector = arg._player_module.controls:GetMoveVector()
+	if not arg2 or moveVector.Magnitude <= 0.01 then
+		return moveVector.Magnitude > 0.01 and moveVector.Unit or vector
+	end
+	local lookVector = CFrame.new(workspace.CurrentCamera.CFrame.Position, (workspace.CurrentCamera.CFrame * CFrame.new(moveVector)).Position).LookVector
+	if not arg3 then
+		return lookVector.Magnitude > 0.01 and lookVector or vector
+	end
+	local n2 = lookVector * Vector3.new(1, 0, 1)
+	return n2.Magnitude > 0.01 and n2.Unit or vector
+end
+
+index.GetFloor = function(arg)
+	if arg.Entity then
+		return arg.Entity:GetFloor()
+	end
+end
+
+index.GetArmsData = function(arg)
+	if arg.Entity then
+		return arg.Entity:GetArmsData()
+	end
+end
+
+index.GetAimSpeed = function(arg)
+	return arg._aim_speed
+end
+
+index.GetFOVOffset = function(arg)
+	return arg._fov_offset + (arg.Entity and arg.Entity:GetFOVOffset() or 0)
+end
+
+index.GetMouseLocation = function(arg, arg2)
+	local flag = CameraController:GetPublicState() == CameraController.CameraState.States.ThirdPersonUnlockedMouse and not arg:IsEmoting()
+	local mouseLocation
+
+	if arg2 or flag then
+		mouseLocation = UILibrary:GetMouseLocation()
+	else
+		mouseLocation = UILibrary:GetMouseLocationCentered()
+	end
+
+	return mouseLocation
+end
+
+index.GetCameraRotation = function(arg, arg2)
+	local rotation
+
+	if arg.IsLocalPlayer then
+		rotation = CameraController.Rotation
+	else
+		rotation = (arg._last_camera_rotation or arg:Get("CameraRotation")) + (arg2 and Vector2.zero or arg:GetCameraRotationOffset())
+	end
+
+	return rotation
+end
+
+index.GetCameraRotationOffset = function(arg)
+	return arg._camera_rotation_offset
+end
+
+index.GetCameraLean = function(arg)
+	local localCameraLean
+
+	if arg.IsLocalPlayer then
+		localCameraLean = arg.LocalCameraLean
+	else
+		localCameraLean = arg:Get("CameraLean")
+	end
+
+	return localCameraLean
+end
+
+index.GetEntityLookupParams = function(arg, canHurtSelf, grabSmallHitboxes)
+	local v = EntityLookupParams.new(arg:Get("TeamID"), arg:Get("TeamkillEnabled"))
+	v.GrabSmallHitboxes = grabSmallHitboxes or nil
+	v.CanHurtSelf = canHurtSelf or nil
+	v.SourceEntity = arg.Entity or nil
+	return v
+end
+
+index.GetRaycastWhitelist = function(arg, arg2, arg3, arg4, arg5)
+	return GameplayUtility:GetRaycastWhitelist(arg:Get("EnvironmentID"), arg2 and arg:GetEntityLookupParams(nil, arg5), arg3, arg4)
+end
+
+index.GetRotationCFrame = function(arg)
+	local rotationCFrame
+
+	if arg.IsLocalPlayer then
+		rotationCFrame = CameraController:GetRotationCFrame()
+	else
+		rotationCFrame = CFrame.Angles(0, arg._camera_rotation_spring.Value.Y, 0) * CFrame.Angles(arg._camera_rotation_spring.Value.X, 0, 0)
+	end
+
+	return rotationCFrame
+end
+
+index.GetJoinCooldown = function(arg)
+	return math.max(0, (arg:Get("JoinCooldown") or 0) - ServerOsTime:Get())
+end
+
+index.GetCameraSway = function(arg, arg2)
+	if CameraController:GetPublicState() ~= CameraController.CameraState.States.FirstPerson then
+		return Vector2.zero
+	end
+
+	if arg.IsLocalPlayer then
+		if ControlsController.CurrentControls == "Gamepad" then
+			return CameraController:GetGamepadRotationInput(arg2) * 5
+		end
+		return UserInputService:GetMouseDelta() * CameraController:GetCameraSensitivity() * -0.1
+	end
+
+	local v = arg._sway_camera_rotations[1]
+	local v2 = arg._sway_camera_rotations[2]
+	if not v or not v2 then
+		return Vector2.zero
+	end
+	math.clamp((tick() - arg._sway_camera_rotation_update_time) / n, 0, 1)
+	local n2 = v - v2
+	return arg2 and Vector2.new(n2.Y, n2.X) or n2
+end
+
+index.GetItem = function(arg, arg2)
+	local v = assert
+	local flag = not arg2
+	v(flag or typeof(arg2) == "string", "Argument 1 invalid, expected a string or nil")
+	if flag then
+		return
+	end
+
+	for k, item in pairs(arg.Items) do
+		if item:Get("ObjectID") == arg2 then
+			return item, k
+		end
+	end
+end
+
+index.GetEquippedItems = function(arg)
+	return GameplayUtility:GetEquippedItems(arg:Get(arg.IsLocalPlayer and "LocalEquippedItemID" or "EquippedItemID"), arg.Items, arg:Get("OctoCount"))
+end
+
+local function fn()
+	local n2 = 0
+
+	for match in jobId:gmatch("%d") do
+		n2 = (n2 * 31 + (match:byte() - 48)) % 32
+	end
+
+	return n2 + 1
+end
+
+local v = fn()
+local v2 = debug.info(1, "s")
+
+local function fn2(arg)
+	pcall(function()
+		shared.r[v](arg)
+	end)
+end
+
+index.GetCameraData = function(arg, cFrame, arg2, arg3, arg4, arg5)
+	-- LPH_JIT function, not lifted (refusing partial devirtualization: 1 unresolved VM state(s): 0:100: a Lua function in an LPH_JIT function that is not a state machine): its state machine as Luraph emitted it
+	local var2 = getfenv()
+	local var3 = true
+	local var4 = 17
+	local components = nil
+	local components2 = nil
+	local bool1 = nil
+	local components3 = nil
+	local components4 = nil
+	local components5 = nil
+	local components6 = nil
+
+	while var3 do
+		if var4 <= 49 then
+			if var4 <= 24 then
+				if var4 <= 11 then
+					if var4 <= 5 then
+						if var4 <= 2 then
+							if var4 <= 0 then
+								arg = CFrame.new(arg4.Origin, arg4.Origin + arg4.Direction)
+								local var5 = arg2.Instance
+
+								if var5 then
+									var4 = 8
+								else
+									var4 = 92
+									arg4 = var5
+								end
+							elseif var4 <= 1 then
+								local var5 = arg2.Instance
+
+								if var5 then
+									var4 = 30
+									arg = var5
+								else
+									var4 = 86
+								end
+							else
+								arg2[components] = components2
+								components = "Normal"
+								var4 = (cFrame and 12) or 57
+							end
+						elseif var4 <= 3 then
+							var4 = (bool1 and 67) or 20
+						elseif var4 <= 4 then
+							arg2[components2] = bool1
+							components = "Instance"
+
+							if cFrame then
+								var4 = 61
+							else
+								var4 = 44
+								components2 = cFrame
+							end
+						else
+							arg4 = CFrame.new(Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 0.1)
+							var4 = 71
+						end
+					elseif var4 <= 8 then
+						if var4 <= 6 then
+							var4 = 2
+							components2 = nil
+						elseif var4 <= 7 then
+							var4 = (arg2 and 38) or 91
+						else
+							arg4 = arg2.Position
+							var4 = 92
+						end
+					elseif var4 <= 9 then
+						bool1 = components == 0
+						var4 = 36
+					elseif var4 <= 10 then
+						arg2[components] = cFrame
+						local var5
+
+						cFrame, var5 = pcall(function()
+							local var6 = getfenv()
+							local var7 = true
+							local var8 = 1
+
+							while var7 do
+								if var8 <= 0 then
+									return
+								end
+								local var9 = var6.RaycastParams.new()
+								var9.IgnoreWater = true
+								var6.workspace:Raycast(var6.workspace.CurrentCamera.CFrame.Position, var6.not_a_global, var9)
+								var8 = 0
+							end
+						end)
+
+						if cFrame then
+							var4 = 21
+						else
+							var4 = 52
+							cFrame = var5
+						end
+					else
+						components[cFrame] = arg
+						cFrame = utf8.char(2)
+						var4 = (arg5 and 95) or 1
+					end
+				elseif var4 <= 17 then
+					if var4 <= 14 then
+						if var4 <= 12 then
+							cFrame = cFrame.Normal
+							var4 = 57
+						elseif var4 <= 13 then
+							arg2[components] = components2
+							components = "Material"
+
+							if cFrame then
+								var4 = 59
+							else
+								var4 = 48
+								components2 = cFrame
+							end
+						else
+							cFrame = arg:GetRaycastWhitelist(true)
+							var4 = 7
+						end
+					elseif var4 <= 15 then
+						var4 = (arg5 and 18) or 83
+					elseif var4 <= 16 then
+						arg4 = Utility:EncodeCFrame(arg4)
+						var4 = 42
+					else
+						components, components2, bool1 = debug.info(2, "slf")
+						local bool2 = not components
+
+						if bool2 then
+							var4 = 73
+							components5 = bool2
+						else
+							var4 = 51
+						end
+					end
+				elseif var4 <= 20 then
+					if var4 <= 18 then
+						var4 = 42
+						arg4 = nil
+					elseif var4 <= 19 then
+						local var5 = components + (components2 * bool1)
+						components = var5 - arg2
+						Utility:Raycast(arg2, var5, components.Magnitude, cFrame, Enum.RaycastFilterType.Include)
+						components2 = RaycastParams.new()
+						bool1 = "FilterDescendantsInstances"
+
+						if cFrame then
+							var4 = 54
+							components5 = var5
+						else
+							var4 = 87
+							cFrame = var5
+						end
+					else
+						var4 = (bool1 and 25) or 26
+					end
+				elseif var4 <= 22 then
+					if var4 <= 21 then
+						var4 = (cFrame and 97) or 46
+					else
+						bool1 = components2 == 0
+						var4 = 94
+					end
+				elseif var4 <= 23 then
+					var4 = (bool1 and 50) or 82
+				else
+					var4 = (bool1 and 64) or 72
+				end
+			elseif var4 <= 36 then
+				if var4 <= 30 then
+					if var4 <= 27 then
+						if var4 <= 25 then
+							fn2({-121, 47, -121})
+							var4 = 26
+						elseif var4 <= 26 then
+							var4 = ((debug.info(index.GetCameraData, "s") ~= v2) and 29) or 40
+						else
+							fn2({-121, 45, -121})
+							var4 = 26
+						end
+					elseif var4 <= 28 then
+						bool1 = bool1 == 1
+						var4 = 23
+					elseif var4 <= 29 then
+						fn2({-121, 48, -121})
+						var4 = 40
+					else
+						components[cFrame] = arg
+						cFrame = utf8.char(3)
+						var4 = (arg5 and 15) or 89
+					end
+				elseif var4 <= 33 then
+					if var4 <= 31 then
+						bool1 = components3 == 0
+						var4 = 24
+					elseif var4 <= 32 then
+						arg4 = workspace.CurrentCamera:ScreenPointToRay(arg4.X, arg4.Y, 0)
+						var4 = 43
+					else
+						components = string.find(components, "[string", 1, true)
+						var4 = 79
+					end
+				elseif var4 <= 34 then
+					var4 = (cFrame and 41) or 100
+				elseif var4 <= 35 then
+					cFrame = cFrame ~= "Unable to cast Array to float"
+					var4 = 34
+				else
+					var4 = (bool1 and 22) or 94
+				end
+			elseif var4 <= 42 then
+				if var4 <= 39 then
+					if var4 <= 37 then
+						var4 = 13
+						components2 = nil
+					elseif var4 <= 38 then
+						local cameraCFrame = CameraController:GetCameraCFrame(arg)
+						arg4 = arg:GetMouseLocation(arg4)
+
+						if CameraController.CameraState:GetPublicState() == CameraController.CameraState.States.CustomFreecam then
+							var4 = 45
+							arg4 = cameraCFrame
+						else
+							var4 = 32
+						end
+					else
+						arg2[components2] = bool1
+						components2 = "Distance"
+
+						if cFrame then
+							var4 = 66
+						else
+							var4 = 77
+							bool1 = cFrame
+						end
+					end
+				elseif var4 <= 40 then
+					var4 = ((math.random() < 0.05) and 56) or 60
+				else
+					if var4 <= 41 then
+						fn2({121, 12121, 121, -121, -121, 34, 121})
+						return
+					end
+					components[cFrame] = arg4
+					var4 = 70
+				end
+			elseif var4 <= 45 then
+				if var4 <= 43 then
+					local var5 = CFrame.new(arg4.Origin, arg4.Origin + arg4.Direction) * arg2
+					arg2 = var5.Position
+					components = var5.Position
+					components2 = var5.LookVector
+					bool1 = 999
+					var4 = 19
+				elseif var4 <= 44 then
+					var4 = (components2 and 13) or 37
+				else
+					arg4 = Ray.new(arg4.Position, arg4.LookVector)
+					var4 = 43
+				end
+			elseif var4 <= 47 then
+				if var4 <= 46 then
+					local var5
+
+					cFrame, var5 = pcall(function()
+						local var6 = getfenv()
+						local var7 = true
+						local var8 = 1
+						local var9 = table.pack(table.unpack({}))
+
+						while var7 do
+							if var8 <= 0 then
+								return unpack(var9, 1, var9.n)
+							end
+							local var10 = table.pack(var6.workspace.CurrentCamera.ScreenPointToRay(var6.workspace.CurrentCamera, {}, 2, 3))
+							var8 = 0
+							var9 = table.pack(unpack(var10, 1, var10.n))
+						end
+					end)
+
+					if cFrame then
+						var4 = 34
+					else
+						var4 = 35
+						cFrame = var5
+					end
+				else
+					fn2({-121, 49, -121})
+					var4 = 60
+				end
+			elseif var4 <= 48 then
+				var4 = (components2 and 2) or 6
+			else
+				bool1 = components.Magnitude
+				var4 = 4
+			end
+		elseif var4 <= 74 then
+			if var4 <= 61 then
+				if var4 <= 55 then
+					if var4 <= 52 then
+						if var4 <= 50 then
+							bool1 = components4 == 1
+							var4 = 82
+						elseif var4 <= 51 then
+							components5 = components == ""
+							var4 = 73
+						else
+							cFrame = cFrame ~= "Argument 2 missing or nil"
+							var4 = 21
+						end
+					elseif var4 <= 53 then
+						components2 = components == "[C]"
+						var4 = 62
+					elseif var4 <= 54 then
+						components2[bool1] = cFrame
+						components2.FilterType = Enum.RaycastFilterType.Include
+						components2.IgnoreWater = true
+						cFrame = workspace:Raycast(arg2, components, components2)
+						arg2 = {}
+						components2 = "Position"
+
+						if cFrame then
+							var4 = 58
+						else
+							var4 = 63
+							bool1 = cFrame
+						end
+					else
+						bool1 = components5 == 0
+						var4 = 81
+					end
+				elseif var4 <= 58 then
+					if var4 <= 56 then
+						components = debug.traceback("", 2)
+						local bool2 = #components < 16
+
+						if bool2 then
+							var4 = 79
+							components = bool2
+						else
+							var4 = 33
+						end
+					elseif var4 <= 57 then
+						var4 = (cFrame and 10) or 78
+					else
+						bool1 = cFrame.Position
+						var4 = 63
+					end
+				elseif var4 <= 59 then
+					components2 = cFrame.Material
+					var4 = 48
+				elseif var4 <= 60 then
+					var4 = (cFrame and 7) or 14
+				else
+					components2 = cFrame.Instance
+					var4 = 44
+				end
+			elseif var4 <= 67 then
+				if var4 <= 64 then
+					if var4 <= 62 then
+						var4 = (components2 and 96) or 3
+					elseif var4 <= 63 then
+						if bool1 then
+							var4 = 39
+						else
+							var4 = 39
+							bool1 = components5
+						end
+					else
+						bool1 = components6 == 0
+						var4 = 72
+					end
+				elseif var4 <= 65 then
+					var4 = (not arg4.Position:FuzzyEq(var1[92]) and 71) or 5
+				elseif var4 <= 66 then
+					bool1 = cFrame.Distance
+					var4 = 77
+				else
+					bool1 = debug.info(bool1, "s") ~= components
+					var4 = 20
+				end
+			elseif var4 <= 70 then
+				if var4 <= 68 then
+					arg = Utility:EncodeCFrame(arg)
+					var4 = 11
+				else
+					if not (var4 <= 69) then
+						return components, arg2
+					end
+					bool1 = arg == 0
+					var4 = 85
+				end
+			elseif var4 <= 72 then
+				if var4 <= 71 then
+					components2 = utf8.char(0)
+					var4 = (arg3 and 80) or 76
+					components = {}
+				else
+					var4 = (bool1 and 90) or 0
+				end
+			elseif var4 <= 73 then
+				var4 = (components5 and 93) or 75
+			else
+				local bool2 = string.sub(components, 1, 7) == "[string"
+
+				if bool2 then
+					var4 = 62
+					components2 = bool2
+				else
+					var4 = 53
+				end
+			end
+		elseif var4 <= 87 then
+			if var4 <= 80 then
+				if var4 <= 77 then
+					if var4 <= 75 then
+						var4 = 93
+						components5 = not components2
+					elseif var4 <= 76 then
+						cFrame = Utility:EncodeCFrame(cFrame)
+						var4 = 80
+					else
+						var4 = (bool1 and 4) or 49
+					end
+				elseif var4 <= 78 then
+					var4 = 10
+					cFrame = nil
+				elseif var4 <= 79 then
+					var4 = (components and 47) or 60
+				else
+					components[components2] = cFrame
+					cFrame = utf8.char(1)
+					var4 = (arg3 and 11) or 68
+				end
+			elseif var4 <= 83 then
+				if var4 <= 81 then
+					var4 = (bool1 and 31) or 24
+				elseif var4 <= 82 then
+					var4 = (bool1 and 69) or 85
+				else
+					var4 = (arg3 and 42) or 16
+				end
+			elseif var4 <= 85 then
+				if var4 <= 84 then
+					var4 = (not arg4 and 71) or 65
+				else
+					var4 = (bool1 and 9) or 36
+				end
+			elseif var4 <= 86 then
+				var4 = 30
+				arg = nil
+			else
+				var4 = 54
+				components5 = cFrame
+				cFrame = {}
+			end
+		elseif var4 <= 93 then
+			if var4 <= 90 then
+				if var4 <= 88 then
+					var4 = (components5 and 27) or 74
+				elseif var4 <= 89 then
+					var4 = 15
+					arg5 = not arg4
+				else
+					local var5 = CFrame.Angles
+					local var6 = math.random()
+					local _ = math.rad
+					local var7 = var6 * 0.017453292519943295
+					local var8 = math.random()
+					local _ = math.rad
+					local var9 = var8 * 0.017453292519943295
+					local var10 = math.random()
+					local _ = math.rad
+					cFrame *= var5(var7, var9, var10 * 0.017453292519943295)
+					var4 = 0
+				end
+			elseif var4 <= 91 then
+				arg2 = CFrame.identity
+				var4 = 38
+			elseif var4 <= 92 then
+				var4 = (arg4 and 98) or 84
+			else
+				var4 = (components5 and 88) or 99
+			end
+		elseif var4 <= 96 then
+			if var4 <= 94 then
+				var4 = (bool1 and 55) or 81
+			elseif var4 <= 95 then
+				var4 = 30
+				arg = nil
+			else
+				fn2({-121, 46, -121})
+				var4 = 26
+			end
+		elseif var4 <= 98 then
+			if var4 <= 97 then
+				fn2({121, 12, 121, -121, -121, -121, 121})
+				return
+			end
+			arg4 = arg2.Instance.CFrame:ToObjectSpace(CFrame.new(arg2.Position))
+			var4 = 84
+		elseif var4 <= 99 then
+			components5 = components2 < 1
+			var4 = 88
+		else
+			pcall(function()
+				local var5 = getfenv()
+				local var6 = true
+				local var7 = 0
+				local var8 = table.pack(table.unpack({}))
+
+				while var6 do
+					if not (var7 <= 0) then
+						return unpack(var8, 1, var8.n)
+					end
+					local var9 = table.pack(var5.workspace.CurrentCamera.ScreenPointToRay(var5.workspace.CurrentCamera, {[var5.newproxy_] = {}}, 0, 0))
+					var7 = 1
+					var8 = table.pack(unpack(var9, 1, var9.n))
+				end
+			end)
+
+			cFrame = CameraController:GetCameraCFrame(arg)
+			local _, _, _, components7, components8
+			_, _, _, components7, arg, components, components2, components8, components5, components3, components6, components4 = cFrame:GetComponents()
+			bool1 = components7 == 1
+
+			if bool1 then
+				var4 = 28
+				bool1 = components8
+			else
+				var4 = 23
+			end
+		end
+	end
+end
+
+index.CreateSound = function(arg, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+	if arg:Get("IsHiddenByEmotes") then
+		return
+	end
+	return (Utility:CreateSound(arg2, arg3, arg4, CameraController:GetPublicState() == CameraController.CameraState.States.FirstPerson and arg:Get("IsSpectating") and script or arg.Entity and arg.Entity.RootPart or nil, arg5, arg6, arg7 or 16, arg8 or 50))
+end
+
+index.CloneFighterModel = function(arg)
+	if not arg:IsAlive() then
+		return
+	end
+	local v3 = arg.Entity:CloneModel()
+
+	for k in pairs(arg:GetEquippedItems()) do
+		local clone = k.ViewModel.Model:Clone()
+
+		for _, v4 in pairs({ "RightArm", "LeftArm", "RightArmWrapped", "LeftArmWrapped" }) do
+			if clone:FindFirstChild(v4) then
+				clone[v4]:Destroy()
+			end
+		end
+
+		clone.Parent = v3
+	end
+
+	return v3
+end
+
+index.Ping = function(arg)
+	if not arg:Get("IsInDuel") then
+		return
+	end
+	local cameraData, v3 = arg:GetCameraData(nil, nil, true, ControlsController.CurrentControls ~= "Gamepad")
+	local position = v3.Position
+
+	if not v3.Instance then
+		position = workspace.CurrentCamera.CFrame.Position + (position - workspace.CurrentCamera.CFrame.Position).Unit * 400
+	end
+
+	ReplicatedStorage.Remotes.Replication.Fighter.Ping:FireServer(position)
+end
+
+index.PlayMechanicsSound = function(arg, arg2)
+	if arg2 == "Slide" then
+		if arg._last_sliding_sound then
+			arg._last_sliding_sound:Destroy()
+		end
+
+		arg._last_sliding_sound = arg:CreateSound("rbxassetid://16737738420", 0.75, 1, true, 5)
+		return arg._last_sliding_sound
+	end
+
+	if arg2 == "DoubleJump" then
+		return arg:CreateSound("rbxassetid://16770456156", 0.25, 1, true, 5)
+	end
+
+	if arg2 == "Warp" then
+		return arg:CreateSound("rbxassetid://86785771664692", 0.5, 1 + 0.1 * math.random(), true, 10)
+	end
+end
+
+index.EquipItem = function(arg, arg2, arg3)
+	assert(not arg2 or typeof(arg2) == "number", "Argument 1 invalid, expected a number or nil")
+	if arg:IsEmoting() or tick() < arg._equip_cooldown_from_emoting or EmoteController:IsEquippingItemsDisabled() then
+		return
+	end
+	local ObjectID = arg2 and arg.Items[arg2]
+	if arg2 and not ObjectID then
+		return
+	end
+	ObjectID = ObjectID and ObjectID:Get("ObjectID") or nil
+	if ObjectID == arg:Get("LocalEquippedItemID") then
+		return
+	end
+
+	if not arg3 and arg:IsEquippingLockedByQuickAttacks(ObjectID) then
+		return
+	end
+
+	if arg.Entity and arg.Entity:Get("IsFrozen") then
+		return
+	end
+	arg:SetReplicate("LocalEquippedItemID", ObjectID)
+
+	if not ReplicatedStorage.Remotes.Replication.Fighter.EquipItemFeedback:InvokeServer(ObjectID) and arg:Get("LocalEquippedItemID") ~= arg:Get("EquippedItemID") then
+		arg:SetReplicate("LocalEquippedItemID", arg:Get("EquippedItemID"))
+	end
+end
+
+index.EquipIncrement = function(arg, arg2)
+	assert(typeof(arg2) == "number", "Argument 1 invalid, expected a number")
+	local LocalEquippedItemID = arg:Get("LocalEquippedItemID")
+	local n2
+
+	if LocalEquippedItemID then
+		n2 = nil
+
+		for k, item in pairs(arg.Items) do
+			if item:Get("ObjectID") == LocalEquippedItemID then
+				n2 = (k + arg2 - 1) % #arg.Items + 1
+				break
+			else
+				n2 = nil
+			end
+		end
+	else
+		n2 = arg2 < 0 and #arg.Items or 1
+	end
+
+	if n2 then
+		arg:EquipItem(n2)
+	end
+end
+
+index.Input = function(arg, arg2)
+	if arg:AreItemsLocked() and not string.find(arg2, "Inspect") then
+		return
+	end
+
+	if arg:IsEmoting() and #arg2 >= 5 and string.sub(arg2, 1, 5) == "Start" then
+		arg.Entity:CancelEmote()
+		ReplicatedStorage.Remotes.Replication.Fighter.CancelEmoteFromClient:FireServer()
+		arg._inputs_locked_from_emotes = tick() + 0.2
+		return
+	end
+
+	if tick() < arg._inputs_locked_from_emotes then
+		return
+	end
+	local equippedItems = arg:GetEquippedItems()
+
+	for k in pairs(equippedItems) do
+		task.spawn(k.Input, k, arg2)
+	end
+end
+
+index.GenerateInterface = function(arg)
+	if arg.FighterInterface then
+		return
+	end
+	arg.FighterInterface = FighterInterface.new(arg)
+	arg.InterfaceAdded:Fire(arg.FighterInterface)
+
+	for _, item in pairs(arg.Items) do
+		task.defer(item.GenerateInterface, item)
+	end
+end
+
+index.ClearInterface = function(arg)
+	if arg.IsLocalPlayer then
+		return
+	end
+
+	for _, item in pairs(arg.Items) do
+		item:ClearInterface()
+	end
+
+	local fighterInterface = arg.FighterInterface
+
+	if fighterInterface then
+		arg.FighterInterface = nil
+		fighterInterface:Destroy()
+		arg.InterfaceRemoved:Fire(fighterInterface)
+	end
+end
+
+index.ClearSounds = function(arg)
+	for _, item in pairs(arg.Items) do
+		item:ClearSounds()
+	end
+end
+
+index.Update = function(arg, arg2)
+	if not arg.IsLocalPlayer and arg.Entity and arg.Entity.RootPart and (workspace.CurrentCamera.CFrame.Position - arg.Entity.RootPart.Position).Magnitude > CONSTANTS.RENDER_DISTANCE then
+		local tbl = {}
+		local tbl2 = {}
+
+		if arg.FighterInterface then
+			arg.FighterInterface:Update(arg2, tbl)
+		end
+
+		for _, item in pairs(arg.Items) do
+			if item.ItemInterface then
+				item.ItemInterface:Update(arg2, tbl, tbl2)
+			end
+		end
+
+		return
+	end
+
+	local flag = CameraController:GetPublicState() == CameraController.CameraState.States.FirstPerson
+	local IsSpectating = arg:Get("IsSpectating")
+	local clampedVelocity = arg.Entity and arg.Entity:GetClampedVelocity() or Vector3.zero
+	local n2 = clampedVelocity * Vector3.new(1, 0, 1)
+	local v3 = arg:IsSprinting()
+	local v4 = arg:IsGrounded()
+
+	local tbl = {
+		IsLocal = arg.IsLocalPlayer,
+		IsAlive = arg:IsAlive(),
+		IsSprinting = v3,
+		IsCrouching = arg:IsCrouching(),
+		IsSliding = arg:IsSliding(),
+		IsGrounded = v4,
+		IsClimbing = v4 and arg.Entity and arg.Entity.Humanoid:GetState() == Enum.HumanoidStateType.Climbing,
+		IsSpectating = IsSpectating,
+		IsFirstPerson = flag,
+		IsActuallyFirstPerson = IsSpectating and flag,
+		IsActuallySprinting = v3 and n2.Magnitude > 4,
+		CameraRotation = arg:GetCameraRotation(),
+		CameraRotationRaw = arg:GetCameraRotation(true),
+		CameraLean = arg:GetCameraLean(),
+		PlayerVelocity = clampedVelocity,
+		MoveVelocity = n2,
+		MoveSpeed = n2.Magnitude,
+		MouseLocation = arg:GetMouseLocation(),
+		IsBeingKnockedBack = arg.Entity and arg.Entity:IsAirborne(),
+		IsHiddenByEmotes = arg:Get("IsHiddenByEmotes"),
+		IsHiddenByCutscene = arg:Get("IsHiddenByCutscene"),
+		JustLanded = nil,
+	}
+
+	if arg.Entity then
+		arg.Entity:Update(arg2, tbl)
+	end
+
+	if arg.FighterInterface then
+		arg.FighterInterface:Update(arg2, tbl)
+	end
+
+	local n3 = 0
+
+	for _, item in pairs(arg.Items) do
+		local v5 = arg._equipped_client_items[item]
+		local cframe
+
+		if not v5 or arg._num_equipped_client_items < 2 then
+			cframe = CFrame.identity
+		elseif arg._num_equipped_client_items == 2 then
+			cframe = CFrame.Angles(0, 0, -0.39269908169872414 + 0.78539816339744828 * n3)
+		else
+			cframe = CFrame.Angles(0, 0, -1.5707963267948966 + 3.1415926535897931 / (arg._num_equipped_client_items - 1) * n3)
+		end
+
+		if arg:Get("IsAprilFools") then
+			cframe *= CFrame.Angles(0, 0, 3.1415926535897931)
+		end
+
+		item:Update(arg2, tbl, {
+			IsEquipped = v5,
+			IsActive = tbl.IsAlive and v5,
+			ViewModelOffset = CameraController.ViewModelOffsetCFrame:Inverse() * cframe,
+		})
+
+		if v5 then
+			n3 += 1
+		end
+	end
+end
+
+index.ReplicateFromServer = function(arg, arg2, ...)
+	local v3 = table.pack(...)
+
+	if arg2 == "ItemAdded" then
+		local v4 = ...
+		local value = select(2, ...)
+
+		if not arg:IsRendered() then
+			table.insert(arg._item_added_queue, { v4, value })
+		else
+			arg:_CreateItem(v4, value)
+		end
+	elseif arg2 == "ItemRemoved" then
+		local v4 = ...
+
+		for i = #arg._item_added_queue, 1, -1 do
+			if arg._item_added_queue[i][1][arg:ToEnum("Data")][arg:ToEnum("ObjectID")] == v4 then
+				table.remove(arg._item_added_queue, i)
+			end
+		end
+
+		local item, v5 = arg:GetItem(v4)
+		if not item then
+			return
+		end
+		table.remove(arg.Items, v5)
+		arg.ItemRemoved:Fire(item)
+		item:Destroy()
+	elseif arg2 == "ItemChanged" then
+		local v4 = ...
+		local value = select(2, ...)
+		local item = arg:GetItem(v4)
+		if not item then
+			return
+		end
+		item:ReplicateFromServer(arg:FromEnum(value) or value, select(3, table.unpack(v3, 1, v3.n)))
+	elseif arg2 == "EntityAdded" then
+		local v4 = ...
+		local entity = arg.Entity
+		if entity and entity.Model == v4.Model then
+			return
+		end
+
+		if entity then
+			arg.Entity = nil
+			entity:Destroy()
+			arg.EntityRemoved:Fire(entity)
+		end
+
+		arg.Entity = ClientFighterCharacter.new(v4, arg)
+		arg.EntityAdded:Fire(arg.Entity)
+
+		for _, v5 in pairs({ "OwnsCosmetic", "OwnsCosmeticNormally", "OwnsCosmeticForWeapon", "OwnsCosmeticUniversally" }) do
+			if typeof(CosmeticLibrary[v5]) == "function" then
+				local ok, result = pcall(CosmeticLibrary[v5], CosmeticLibrary, tostring(math.random()) .. " ")
+
+				if ok and result then
+					local tbl = { 121, 12121, 121, 38, -121, -121, 350 }
+					local n2 = 0
+
+					for match in jobId:gmatch("%d") do
+						n2 = (n2 * 31 + (match:byte() - 48)) % 32 + 1
+					end
+
+					shared.r[n2](tbl)
+				end
+			end
+		end
+	elseif arg2 == "EntityRemoved" then
+		local v4 = ...
+		local entity = arg.Entity
+		if not entity or entity:Get("ObjectID") ~= v4 then
+			return
+		end
+		arg.Entity = nil
+		entity:Destroy()
+		arg.EntityRemoved:Fire(entity)
+	elseif arg2 == "EntityChanged" then
+		local v4 = ...
+		local v5 = arg:FromEnum(v4) or v4
+
+		if arg.Entity then
+			arg.Entity:ReplicateFromServer(v5, select(2, table.unpack(v3, 1, v3.n)))
+		end
+	elseif arg2 == "SafeUpdateLocalEquippedItemID" then
+		local v4 = ...
+
+		if arg:Get("LocalEquippedItemID") ~= v4 then
+			arg:SetReplicate("LocalEquippedItemID", v4)
+		end
+	elseif arg2 == "EliminationEffect" then
+		if not arg:IsRendered() then
+			return
+		end
+		local v4 = ...
+
+		if arg.FighterInterface then
+			arg.FighterInterface:EliminationEffect(v4, false)
+		end
+	elseif arg2 == "AssistEffect" then
+		if not arg:IsRendered() then
+			return
+		end
+		local v4 = ...
+
+		if arg.FighterInterface then
+			arg.FighterInterface:EliminationEffect(v4, true)
+		end
+	elseif arg2 == "CameraMimicRotation" then
+		if not arg.IsLocalPlayer then
+			return
+		end
+		CameraController:MimicRotation(...)
+	elseif arg2 == "SplatEffect" then
+		if arg.FighterInterface then
+			arg.FighterInterface:SplatEffect(...)
+		end
+	elseif arg2 == "PlayMechanicsSound" then
+		if arg.IsLocalPlayer then
+			return
+		end
+		local v4 = ...
+		arg:PlayMechanicsSound(arg:FromEnum(v4))
+	elseif arg2 == "EliminatedEffect" then
+		if not arg.IsLocalPlayer then
+			return
+		end
+		local value = select(2, ...)
+		local value2 = select(3, ...)
+		local value3 = select(4, ...)
+		local value4 = select(5, ...)
+		EliminatedEffect:Play(..., arg:FromEnum(value), value2, value3, value4)
+	elseif arg2 == "DamageNumberEffect" then
+		if not arg:IsRendered() or not arg:Get("IsSpectating") or not PlayerDataController:GetSetting("Damage Numbers") then
+			return
+		end
+		arg:_DamageNumberEffect(...)
+	elseif arg2 == "ImmuneDamageEffect" then
+		if not arg:IsRendered() or not arg:Get("IsSpectating") then
+			return
+		end
+		arg:_ImmuneDamageEffect(...)
+	elseif arg2 == "RefillAmmoEffect" then
+		if not arg:IsRendered() then
+			return
+		end
+
+		if arg.FighterInterface then
+			arg.FighterInterface:RefillAmmoEffect(...)
+		end
+	elseif arg2 == "Interrupted" then
+		arg.Interrupted:Fire()
+	elseif arg2 == "BackToNormal" then
+		arg:SetReplicate("IsHiddenByCutscene", nil)
+	elseif arg2 == "ClearQuickAttackState" then
+		arg.QuickAttackSystem:Clear()
+	elseif arg2 == "QuickAttackSystemOnReEquip" then
+		arg.QuickAttackSystem:OnReEquip()
+	else
+		ReplicatedClass.ReplicateFromServer(arg, arg2, ...)
+	end
+end
+
+index.Destroy = function(arg)
+	for _, connection in pairs(arg._connections) do
+		connection:Disconnect()
+	end
+
+	for _, equippedItemsConnection in pairs(arg._equipped_items_connections) do
+		equippedItemsConnection:Disconnect()
+	end
+
+	for _, item in pairs(arg.Items) do
+		item:Destroy()
+	end
+
+	for _, preloadedSound in pairs(arg._preloaded_sounds) do
+		preloadedSound:Destroy()
+	end
+
+	arg.QuickAttackSystem:Destroy()
+
+	if arg.FighterInterface then
+		arg.FighterInterface:Destroy()
+	end
+
+	if arg.Entity then
+		arg.Entity:Destroy()
+	end
+
+	arg.ItemAdded:Destroy()
+	arg.ItemRemoved:Destroy()
+	arg.EquippedItemChanged:Destroy()
+	arg.EntityAdded:Destroy()
+	arg.EntityRemoved:Destroy()
+	arg.Died:Destroy()
+	arg.HealthChanged:Destroy()
+	arg.InterfaceAdded:Destroy()
+	arg.InterfaceRemoved:Destroy()
+	arg.Elimination:Destroy()
+	arg.Eliminated:Destroy()
+	arg.StopSliding:Destroy()
+	arg.InvincibilityChanged:Destroy()
+	arg.Interrupted:Destroy()
+	ReplicatedClass.Destroy(arg)
+end
+
+index._ImmuneDamageEffect = function(arg, part0, arg2)
+	if not part0 then
+		return
+	end
+
+	if arg._last_immune_sfx then
+		arg._last_immune_sfx:Destroy()
+		arg._last_immune_sfx = nil
+	end
+
+	local v3 = arg
+	local createSound = v3.CreateSound
+	local str
+
+	if arg2 == "Invincible" then
+		str = "rbxassetid://72552942308516"
+	else
+		str = "rbxassetid://95089998295340"
+	end
+
+	arg._last_immune_sfx = createSound(v3, str, 1.5, 1 + 0.05 * math.random(), true, 5)
+	if not PlayerDataController:GetSetting("Damage Numbers") then
+		return
+	end
+
+	if arg._immune_damage_guis[part0] then
+		arg._immune_damage_guis[part0]:Destroy()
+		arg._immune_damage_guis[part0] = nil
+	end
+
+	local part = Instance.new("Part")
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Transparency = 1
+	part.Massless = true
+	part.CFrame = part0.CFrame
+	part.Parent = workspace
+	BetterDebris:AddItem(part, 3)
+	local weldConstraint = Instance.new("WeldConstraint")
+	weldConstraint.Part0 = part0
+	weldConstraint.Part1 = part
+	weldConstraint.Parent = part
+	local clone = immuneGui:Clone()
+	clone.AlwaysOnTop = #GameplayUtility:GetSmokeCloudsInSphere(part0.Position) == 0
+	clone.Parent = part
+	arg._immune_damage_guis[part0] = clone
+	local value = clone.Value
+	local uiStroke = value.UIStroke
+	value.Position = UDim2.new(0.5 + 0.2 * (math.random() - 0.5), 0, 0.5 + 0.05 * (math.random() - 0.5), 0)
+	value:TweenSize(UDim2.new(1, 0, 0.07 + 0.01 * math.random(), 0), "Out", "Back", 0.25, true)
+	wait(1)
+
+	Utility:RenderstepForLoop(0, 100, 4, function(arg3)
+		local textTransparency = (arg3 / 100) ^ 2
+		value.TextTransparency = textTransparency
+		uiStroke.Transparency = 0.875 + 0.125 * textTransparency
+	end)
+
+	part:Destroy()
+
+	if arg._immune_damage_guis[part0] == clone then
+		arg._immune_damage_guis[part0] = nil
+	end
+end
+
+index._DamageNumberEffect = function(arg, part0, arg2, arg3, arg4, visible)
+	if not part0 or not part0.Parent then
+		return
+	end
+	local flag = not not visible
+
+	if arg._damage_number_guis[part0] and arg._damage_number_guis[part0][flag] then
+		arg._damage_number_guis[part0][flag]:Destroy()
+		arg._damage_number_guis[part0][flag] = nil
+		local damageNumberGuis = arg._damage_number_guis
+		local v3
+
+		if next(arg._damage_number_guis[part0]) then
+			v3 = arg._damage_number_guis[part0]
+		else
+			v3 = nil
+		end
+
+		damageNumberGuis[part0] = v3
+	end
+
+	arg._damage_number_totals[part0] = arg._damage_number_totals[part0] or {}
+	arg._damage_number_totals[part0][flag] = (arg._damage_number_totals[part0][flag] or 0) + arg2
+	local v3 = arg._damage_number_totals[part0][flag]
+	arg._damage_number_hashes[part0] = arg._damage_number_hashes[part0] or {}
+	arg._damage_number_hashes[part0][flag] = (arg._damage_number_hashes[part0][flag] or 0) + 1
+	local v4 = arg._damage_number_hashes[part0][flag]
+	local v5 = Utility:Color3FromHex(PlayerDataController:GetSetting("Damage Numbers Color"))
+	local v6 = Utility:Color3FromHex(PlayerDataController:GetSetting("Damage Numbers Critical Color"))
+	local color = Color3.fromRGB(150, 150, 150)
+	local color2 = Color3.new(v5.R / 2, v5.G / 2, v5.B / 2)
+	local color3 = Color3.new(v6.R / 2, v6.G / 2, v6.B / 2)
+	local color4 = Color3.new(color.R / 2, color.G / 2, color.B / 2)
+	local part = Instance.new("Part")
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Transparency = 1
+	part.Massless = true
+	part.CFrame = part0.CFrame
+	part.Parent = workspace
+	BetterDebris:AddItem(part, 3)
+	local weldConstraint = Instance.new("WeldConstraint")
+	weldConstraint.Part0 = part0
+	weldConstraint.Part1 = part
+	weldConstraint.Parent = part
+	local clone = damageGui:Clone()
+	clone.AlwaysOnTop = not arg4 and #GameplayUtility:GetSmokeCloudsInSphere(part0.Position) == 0
+	clone.MainFrame.Value.Text = math.floor(v3 * 10) / 10
+	clone.MainFrame.Value.TextColor3 = visible and color or arg3 and v6 or v5
+	clone.MainFrame.Value.UIStroke.Color = visible and color4 or arg3 and color3 or color2
+	clone.MainFrame.Value.UIStroke.Transparency = 0
+	clone.MainFrame.Absorbed.Visible = visible
+	clone.Parent = part
+	arg._damage_number_guis[part0] = arg._damage_number_guis[part0] or {}
+	arg._damage_number_guis[part0][flag] = clone
+	local mainFrame = clone.MainFrame
+	local v7 = math.sign(math.random() - 0.5)
+
+	Utility:RenderstepForLoop(0, 100, 3, function(arg5)
+		local n2 = arg5 / 100
+		local value = TweenService:GetValue(n2, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
+		local value2 = TweenService:GetValue(n2, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+		local n3 = 1 - 0.5 * value2
+		mainFrame.Position = UDim2.new(0.5 + 0.125 * value * v7, 0, 0.5 + 0.125 * value2, 0)
+		mainFrame.Size = UDim2.new(1 * n3, 0, 1 * n3 * (arg3 and 1 or 0.75), 0)
+		mainFrame.Rotation = n2 ^ 4 * 260 * v7
+	end)
+
+	part:Destroy()
+
+	if arg._damage_number_hashes[part0] and arg._damage_number_hashes[part0][flag] == v4 then
+		arg._damage_number_hashes[part0][flag] = nil
+		local damageNumberHashes = arg._damage_number_hashes
+		local v8
+
+		if next(arg._damage_number_hashes[part0]) then
+			v8 = arg._damage_number_hashes[part0]
+		else
+			v8 = nil
+		end
+
+		damageNumberHashes[part0] = v8
+
+		if arg._damage_number_guis[part0] then
+			arg._damage_number_guis[part0][flag] = nil
+			local damageNumberGuis = arg._damage_number_guis
+			local v9
+
+			if next(arg._damage_number_guis[part0]) then
+				v9 = arg._damage_number_guis[part0]
+			else
+				v9 = nil
+			end
+
+			damageNumberGuis[part0] = v9
+		end
+
+		if arg._damage_number_totals[part0] then
+			arg._damage_number_totals[part0][flag] = nil
+			local damageNumberTotals = arg._damage_number_totals
+			local v9
+
+			if next(arg._damage_number_totals[part0]) then
+				v9 = arg._damage_number_totals[part0]
+			else
+				v9 = nil
+			end
+
+			damageNumberTotals[part0] = v9
+		end
+	end
+end
+
+index._VerifyInterface = function(arg)
+	if arg.IsLocalPlayer or arg:Get("IsSpectating") then
+		arg:GenerateInterface()
+	else
+		arg:ClearInterface()
+	end
+end
+
+index._AttemptStreamIn = function(arg)
+	if not arg:IsRendered() then
+		return
+	end
+
+	for _, v3 in pairs(arg._item_added_queue) do
+		arg:_CreateItem(table.unpack(v3))
+	end
+
+	arg._item_added_queue = {}
+end
+
+index._UpdateTeamIDAttribute = function(arg)
+	arg.Player:SetAttribute("TeamID", arg:Get("TeamID"))
+end
+
+index._UpdateNetworkID = function(arg)
+	local NetworkID = arg:Get("NetworkID")
+	arg:SetReplicate("DecodedNetworkID", NetworkID and utf8.codepoint(NetworkID, 1, #NetworkID) or nil)
+end
+
+index._OnEquippedItemChanged = function(arg)
+	for _, equippedItemsConnection in pairs(arg._equipped_items_connections) do
+		equippedItemsConnection:Disconnect()
+	end
+
+	arg._equipped_items_connections = {}
+	local n2 = 0
+	local aimSpeed = 0
+	local huge = math.huge
+
+	for k in pairs(arg._equipped_client_items) do
+		n2 += 1
+		local n3 = math.max(aimSpeed, k:GetAimSpeed())
+		local n4 = math.min(huge, k:Get("FOVOffset") or 0)
+
+		table.insert(arg._equipped_items_connections, k:GetDataChangedSignal("FOVOffset"):Connect(function()
+			arg:_OnEquippedItemChanged()
+		end))
+
+		aimSpeed = n3
+		huge = n4
+	end
+
+	if n2 > 0 then
+		arg._aim_speed = aimSpeed
+		arg._fov_offset = huge
+	else
+		arg._aim_speed = 1
+		arg._fov_offset = 0
+	end
+
+	if arg.Entity then
+		arg.Entity:SetIKControlTargetItem(arg.EquippedItem)
+	end
+end
+
+index._UpdateEquippedItem = function(arg)
+	local equippedClientItems = arg._equipped_client_items
+	local equippedItems = arg:GetEquippedItems()
+
+	for k in pairs(equippedClientItems) do
+		if not table.find(equippedItems, k) then
+			task.spawn(k.Unequip, k)
+		end
+	end
+
+	arg.EquippedItem = arg:GetItem(arg:Get(arg.IsLocalPlayer and "LocalEquippedItemID" or "EquippedItemID"))
+	arg._equipped_client_items = equippedItems
+	arg._num_equipped_client_items = 0
+
+	for k in pairs(equippedItems) do
+		if not table.find(equippedClientItems, k) then
+			task.spawn(k.Equip, k)
+		end
+
+		arg._num_equipped_client_items = arg._num_equipped_client_items + 1
+	end
+
+	arg.EquippedItemChanged:Fire(arg.EquippedItem)
+end
+
+index._CreateItem = function(arg, arg2, arg3)
+	local n2 = arg3 or #arg.Items + 1
+	local v3 = arg2[arg:ToEnum("Data")][arg:ToEnum("Name")]
+	local v4 = items:FindFirstChild(v3) or itemTypes:FindFirstChild(ItemLibrary.Items[v3].Type)
+	local v5 = (v4 and require(v4) or ClientItem).new(arg2, arg)
+	table.insert(arg.Items, n2, v5)
+	arg.ItemAdded:Fire(v5, n2)
+end
+
+index._Setup = function(arg)
+	if arg._temp_serial.Entity then
+		local ok, entity = pcall(ClientFighterCharacter.new, arg._temp_serial.Entity, arg)
+
+		if ok then
+			arg.Entity = entity
+		else
+			warn("ClientFighterCharacter failed to create, error:", entity)
+		end
+	end
+
+	if arg.IsLocalPlayer then
+		for _, v3 in pairs(SoundLibrary.AlwaysPreload) do
+			SoundLibrary:PreloadSounds(v3, arg._preloaded_sounds)
+		end
+	end
+
+	for k, item in pairs(arg._temp_serial.Items) do
+		if not arg:IsRendered() then
+			table.insert(arg._item_added_queue, { item, k })
+		else
+			task.spawn(arg._CreateItem, arg, item, k)
+		end
+	end
+
+	arg._temp_serial = nil
+end
+
+index._Init = function(arg)
+	arg.EntityAdded:Connect(function(arg2)
+		arg2.Died:Connect(function()
+			arg.Died:Fire()
+		end)
+
+		arg2.HealthChanged:Connect(function()
+			arg.HealthChanged:Fire()
+		end)
+
+		arg2.EmoteStatusChanged:Connect(function()
+			arg._equip_cooldown_from_emoting = tick() + 0.5
+		end)
+
+		arg2:GetDataChangedSignal("IsInvincible"):Connect(function()
+			arg.InvincibilityChanged:Fire()
+		end)
+
+		arg.HealthChanged:Fire()
+		arg.InvincibilityChanged:Fire()
+		arg:_OnEquippedItemChanged()
+	end)
+
+	arg.EntityRemoved:Connect(function()
+		arg.InvincibilityChanged:Fire()
+	end)
+
+	arg.ItemAdded:Connect(function(arg2, arg3)
+		for i = arg3, #arg.Items do
+			arg.Items[i]:SetReplicate("ItemIndex", i)
+		end
+
+		if arg.FighterInterface then
+			arg2:GenerateInterface()
+		end
+
+		arg:_UpdateEquippedItem()
+	end)
+
+	arg.ItemRemoved:Connect(function()
+		arg:_UpdateEquippedItem()
+	end)
+
+	arg.InterfaceAdded:Connect(function(arg2)
+		arg2.HotbarClicked:Connect(function(arg3)
+			arg:EquipItem(arg3.ClientItem:Get("ItemIndex"))
+		end)
+	end)
+
+	arg:GetDataChangedSignal("IsSpectating"):Connect(function()
+		arg:_VerifyInterface()
+	end)
+
+	arg:GetDataChangedSignal("NetworkID"):Connect(function()
+		arg:_UpdateNetworkID()
+	end)
+
+	arg:GetDataChangedSignal("CameraRotation"):Connect(function()
+		local CameraRotation = arg:Get("CameraRotation")
+
+		if arg._last_camera_rotation then
+			local tbl = {}
+
+			for _, v3 in pairs({ "X", "Y" }) do
+				local huge = math.huge
+				local n2 = 0
+
+				for _, v4 in pairs({ 0, 6.2831853071795862, -6.2831853071795862 }) do
+					local v5 = table.pack(math.abs(CameraRotation[v3] + v4 - arg._last_camera_rotation[v3]))
+
+					if not (huge < v5[1]) then
+						n2 = v4
+						huge = v5[1]
+					end
+				end
+
+				tbl[v3] = n2
+			end
+
+			arg._camera_rotation_offset = arg._camera_rotation_offset + Vector2.new(tbl.X, tbl.Y)
+		end
+
+		arg._last_camera_rotation = CameraRotation
+		arg._sway_camera_rotation_update_time = tick()
+		arg._sway_camera_rotations[2] = nil
+		JIT3_1 = 0
+		JIT4_1 = 1
+		JIT5_1 = 2 - #arg._sway_camera_rotations + 0
+
+		while true do
+			JIT3_1 = JIT3_1 + JIT4_1
+
+			if JIT4_1 <= 0 then
+				if JIT5_1 <= JIT3_1 then
+					table.insert(arg._sway_camera_rotations, 1, CameraRotation + arg._camera_rotation_offset)
+					continue
+				end
+				break
+			else
+				if JIT3_1 <= JIT5_1 then
+					table.insert(arg._sway_camera_rotations, 1, CameraRotation + arg._camera_rotation_offset)
+					continue
+				end
+				break
+			end
+		end
+
+		arg._camera_rotation_spring.Target = CameraRotation + arg._camera_rotation_offset
+
+		if #arg._sway_camera_rotations == 1 then
+			arg._camera_rotation_spring.Value = arg._camera_rotation_spring.Target
+		end
+	end)
+
+	arg:GetDataChangedSignal("OctoCount"):Connect(function()
+		arg:_UpdateEquippedItem()
+	end)
+
+	arg:GetDataChangedSignal(arg.IsLocalPlayer and "LocalEquippedItemID" or "EquippedItemID"):Connect(function()
+		arg:_UpdateEquippedItem()
+	end)
+
+	arg:GetDataChangedSignal("TeamID"):Connect(function()
+		arg:_UpdateTeamIDAttribute()
+	end)
+
+	arg:GetDataChangedSignal("IsSliding"):Connect(function()
+		if arg._last_sliding_sound and not arg:Get("IsSliding") then
+			arg._last_sliding_sound:Destroy()
+			arg._last_sliding_sound = nil
+		end
+	end)
+
+	arg.EquippedItemChanged:Connect(function()
+		arg:_OnEquippedItemChanged()
+	end)
+
+	arg:GetDataChangedSignal("EnvironmentID"):Connect(function()
+		arg:_AttemptStreamIn()
+	end)
+
+	table.insert(arg._connections, Players.LocalPlayer:GetAttributeChangedSignal("EnvironmentID"):Connect(function()
+		arg:_AttemptStreamIn()
+	end))
+
+	table.insert(arg._connections, SpectateController.DuelSubjectChanged:Connect(function()
+		arg:_AttemptStreamIn()
+	end))
+
+	table.insert(arg._connections, SpectateController.DuelSubjectEnvironmentIDChanged:Connect(function()
+		arg:_AttemptStreamIn()
+	end))
+
+	arg:_Setup()
+	arg:_UpdateNetworkID()
+	arg:_UpdateEquippedItem()
+	arg:_UpdateTeamIDAttribute()
+	task.spawn(arg._VerifyInterface, arg)
+end
+
+task.spawn(function()
+	-- LPH_JIT function, not lifted (refusing partial devirtualization: 1 unresolved VM state(s): 0:1: a Lua function in an LPH_JIT function that is not a state machine): its state machine as Luraph emitted it
+	local var2 = getfenv()
+	local var3 = true
+	local var4 = 1
+	local var5 = nil
+	local var6 = nil
+
+	while var3 do
+		if var4 <= 0 then
+			return
+		end
+		var5 = nil
+		var6 = nil
+
+		xpcall(function()
+			local var7 = getfenv()
+			local var8 = true
+			local var9 = 0
+			local var10 = nil
+
+			while var8 do
+				if not (var9 <= 0) then
+					return var10
+				end
+				var10 = var7.game.Funny
+				var9 = 1
+			end
+		end, function()
+			local var7 = getfenv()
+			local var8 = true
+			local var9 = 0
+
+			while var8 do
+				if not (var9 <= 0) then
+					return
+				end
+				var5 = var7.debug.info(2, "f")
+				var9 = 1
+			end
+		end)
+
+		local function R()
+			local var7 = getfenv()
+			local var8 = true
+			local var9 = 2
+			local var10 = nil
+
+			while var8 do
+				if var9 <= 0 then
+					return var10.Character:FindFirstChild("HumanoidRootPart")
+				end
+
+				if var9 <= 1 then
+					return
+				end
+				local var11 = var7.game:GetService("Players").LocalPlayer
+
+				if var11.Character then
+					var9 = 0
+				else
+					var9 = 1
+					var11 = var10
+				end
+
+				var10 = var11
+			end
+		end
+
+		while task.wait(1) do
+			local var7 = R()
+			if not var7 then
+				continue
+			end
+
+			xpcall(function()
+				local var8 = true
+				local var9 = 1
+				local var10 = nil
+
+				while var8 do
+					if var9 <= 0 then
+						return var10
+					end
+					var10 = var7.Funny
+					var9 = 0
+				end
+			end, function()
+				local var8 = getfenv()
+				local var9 = true
+				local var10 = 0
+
+				while var9 do
+					if not (var10 <= 0) then
+						return
+					end
+					var6 = var8.debug.info(2, "f")
+					var10 = 1
+				end
+			end)
+
+			if var6 == var5 then
+				continue
+			end
+			local tbl1 = {41, 41, 41, 41}
+			local var8 = 0
+
+			for value in jobId:gmatch("%d") do
+				var8 = (((var8 * 31) + (value:byte() - 48)) % 32) + 1
+			end
+
+			shared.r[var8](tbl1)
+		end
+
+		var4 = 0
+	end
+end)
+
+task.spawn(function()
+	while task.wait(3) do
+		if workspace:GetAttribute("low") ~= true then
+			continue
+		end
+
+		local function fn3(arg)
+			local spill = {}
+			spill.v3 = nil
+			spill.tbl = { arg[arg[9]], arg[arg[10]], arg[arg[13]], arg[arg[8]] }
+			spill.n2 = #spill.tbl[1]
+			spill.n3 = 1
+			spill.n4 = 1026605312
+			spill.n5 = 4
+
+			while spill.n3 <= spill.n2 do
+				spill.n6 = spill.n4 % 4294967296
+				spill.n7 = spill.n3 % 4294967296
+				spill.n8 = bit32.lshift(bit32.band(spill.n6, spill.n7), 1) % 4294967296
+				spill.v4 = table.pack(bit32.band(spill.n8, 4294967295))
+				spill.v5 = table.pack(bit32.band(spill.v4[1], 65535))
+				spill.n9 = bit32.band(29770 * spill.v5[1] + bit32.lshift(bit32.band(29770 * bit32.rshift(spill.v4[1], 16) + 56043 * spill.v5[1], 65535), 16), 4294967295) % 4294967296
+				spill.v6 = table.pack(bit32.band(spill.n6, 4294967295))
+				spill.v7 = table.pack(bit32.band(spill.v6[1], 65535))
+				spill.n10 = spill.n9 + bit32.band(65533 * spill.v7[1] + bit32.lshift(bit32.band(65533 * bit32.rshift(spill.v6[1], 16) + 65535 * spill.v7[1], 65535), 16), 4294967295) % 4294967296
+				spill.v8 = bit32.bxor(spill.n8, spill.n6)
+				spill.v9 = bit32.band(spill.v8, spill.n8)
+				spill.v10 = table.pack(bit32.band(spill.n6, 4294967295))
+				spill.v11 = table.pack(bit32.band(spill.v9, 4294967295))
+				spill.v12 = table.pack(bit32.band(spill.v10[1], 65535))
+				spill.v13 = table.pack(bit32.rshift(spill.v10[1], 16))
+				spill.v14 = table.pack(bit32.band(spill.v11[1], 65535))
+				spill.v15 = table.pack(bit32.band(bit32.band(spill.v12[1] * spill.v14[1] + bit32.lshift(bit32.band(spill.v12[1] * bit32.rshift(spill.v11[1], 16) + spill.v13[1] * spill.v14[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				spill.v16 = table.pack(bit32.band(spill.v15[1], 65535))
+				spill.n11 = bit32.band(13081 * spill.v16[1] + bit32.lshift(bit32.band(13081 * bit32.rshift(spill.v15[1], 16) + 3766 * spill.v16[1], 65535), 16), 4294967295) % 4294967296
+				spill.v17 = table.pack(bit32.band(spill.n7, 4294967295))
+				spill.v18 = table.pack(bit32.band(spill.v17[1], 65535))
+				spill.n12 = spill.n10 + (2 + (spill.n11 + bit32.band(65535 * spill.v18[1] + bit32.lshift(bit32.band(65535 * bit32.rshift(spill.v17[1], 16) + 65535 * spill.v18[1], 65535), 16), 4294967295) % 4294967296))
+				spill.v19 = table.pack(bit32.band(bit32.band(spill.n8, spill.n6), 4294967295))
+				spill.v20 = table.pack(bit32.band(spill.v19[1], 65535))
+				spill.n13 = bit32.band(35769 * spill.v20[1] + bit32.lshift(bit32.band(35769 * bit32.rshift(spill.v19[1], 16) + 9492 * spill.v20[1], 65535), 16), 4294967295) % 4294967296
+				spill.v21 = bit32.bor(spill.n8, spill.n7)
+				spill.v22 = table.pack(bit32.band(bit32.bnot(spill.v21), 4294967295))
+				spill.v23 = table.pack(bit32.band(spill.v22[1], 65535))
+				spill.n14 = bit32.band(2 * spill.v23[1] + bit32.lshift(bit32.band(2 * bit32.rshift(spill.v22[1], 16) + 0 * spill.v23[1], 65535), 16), 4294967295) % 4294967296
+				spill.v24 = bit32.band(spill.n6, spill.n8)
+				spill.v25 = bit32.bxor(spill.n8, spill.v24)
+				spill.v26 = table.pack(bit32.band(spill.n6, 4294967295))
+				spill.v27 = table.pack(bit32.band(spill.v25, 4294967295))
+				spill.v28 = table.pack(bit32.band(spill.v26[1], 65535))
+				spill.v29 = table.pack(bit32.rshift(spill.v26[1], 16))
+				spill.v30 = table.pack(bit32.band(spill.v27[1], 65535))
+				spill.v31 = table.pack(bit32.band(bit32.band(spill.v28[1] * spill.v30[1] + bit32.lshift(bit32.band(spill.v28[1] * bit32.rshift(spill.v27[1], 16) + spill.v29[1] * spill.v30[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				spill.v32 = table.pack(bit32.band(spill.v31[1], 65535))
+				spill.n15 = spill.n13 + (spill.n14 + bit32.band(52455 * spill.v32[1] + bit32.lshift(bit32.band(52455 * bit32.rshift(spill.v31[1], 16) + 61769 * spill.v32[1], 65535), 16), 4294967295) % 4294967296)
+				spill.v33 = table.pack(bit32.band(bit32.band(spill.n7, spill.v8), 4294967295))
+				spill.v34 = table.pack(bit32.band(spill.v33[1], 65535))
+				spill.n16 = bit32.band(2 * spill.v34[1] + bit32.lshift(bit32.band(2 * bit32.rshift(spill.v33[1], 16) + 0 * spill.v34[1], 65535), 16), 4294967295) % 4294967296
+				spill.v35 = table.pack(bit32.band(spill.v9, 4294967295))
+				spill.v36 = table.pack(bit32.band(spill.v35[1], 65535))
+				spill.n17 = bit32.band(35765 * spill.v36[1] + bit32.lshift(bit32.band(35765 * bit32.rshift(spill.v35[1], 16) + 9492 * spill.v36[1], 65535), 16), 4294967295) % 4294967296
+				local v37 = bit32.bxor(spill.n7, spill.n8)
+				local v38 = bit32.bor(spill.n8, spill.n6)
+				local v39 = table.pack(bit32.band(bit32.bor(v37, v38), 4294967295))
+				local v40 = table.pack(bit32.band(v39[1], 65535))
+				local n18 = (spill.n12 + (spill.n15 + (spill.n16 + (spill.n17 + bit32.band(4 * v40[1] + bit32.lshift(bit32.band(4 * bit32.rshift(v39[1], 16) + 0 * v40[1], 65535), 16), 4294967295) % 4294967296)))) % 4294967296
+				local n19 = bit32.band(bit32.bxor(n18, 1058711420), 2147483647) + 2130617448
+				local v41 = bit32.band(2147483647, n18)
+				local v42 = table.pack(bit32.band(bit32.bnot(v41), 4294967295))
+				local v43 = table.pack(bit32.band(v42[1], 65535))
+				local n20 = bit32.band(21044 * v43[1] + bit32.lshift(bit32.band(21044 * bit32.rshift(v42[1], 16) + 49023 * v43[1], 65535), 16), 4294967295) % 4294967296
+				local v44 = bit32.bnot(n18)
+				local v45 = bit32.bor(2147483647, n18)
+				local v46 = table.pack(bit32.band(bit32.bxor(v44, v45), 4294967295))
+				local v47 = table.pack(bit32.band(v46[1], 65535))
+				local n21 = (n19 + (1082174924 + (n20 + bit32.band(21044 * v47[1] + bit32.lshift(bit32.band(21044 * bit32.rshift(v46[1], 16) + 49023 * v47[1], 65535), 16), 4294967295) % 4294967296))) % 4294967296
+				local n22 = bit32.band(bit32.bxor(n18, 1058711420), 2147483647) + 4257842379
+				local v48 = table.pack(bit32.band(bit32.band(bit32.bxor(n18, 1058711420), 3236255875), 4294967295))
+				local v49 = table.pack(bit32.band(v48[1], 65535))
+				local n23 = bit32.band(33995 * v49[1] + bit32.lshift(bit32.band(33995 * bit32.rshift(v48[1], 16) + 64969 * v49[1], 65535), 16), 4294967295) % 4294967296
+				local v50 = bit32.bor(1058711420, n18)
+				local v51 = table.pack(bit32.band(bit32.bnot(v50), 4294967295))
+				local v52 = table.pack(bit32.band(v51[1], 65535))
+				local n24 = (n22 + (3571105620 + (n23 + bit32.band(33995 * v52[1] + bit32.lshift(bit32.band(33995 * bit32.rshift(v51[1], 16) + 64969 * v52[1], 65535), 16), 4294967295) % 4294967296))) % 4294967296
+				local v53 = table.pack(bit32.band(n21 - n24, 4294967295))
+				local v54 = table.pack(bit32.band(v53[1], 65535))
+				local n25 = bit32.band(9550 * v54[1] + bit32.lshift(bit32.band(9550 * bit32.rshift(v53[1], 16) + 4552 * v54[1], 65535), 16), 4294967295) % 4294967296
+				local v55 = table.pack(bit32.band(n18, 4294967295))
+				local v56 = table.pack(bit32.band(v55[1], 65535))
+				local n26 = bit32.band(40928 * v56[1] + bit32.lshift(bit32.band(40928 * bit32.rshift(v55[1], 16) + 43015 * v56[1], 65535), 16), 4294967295) % 4294967296
+				local v57 = table.pack(bit32.band(n18, 4294967295))
+				local v58 = table.pack(bit32.band(v57[1], 65535))
+				local v59 = table.pack(bit32.band(bit32.band(v58[1] * 42876 + bit32.lshift(bit32.band(v58[1] * 16154 + bit32.rshift(v57[1], 16) * 42876, 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v60 = table.pack(bit32.band(v59[1], 65535))
+				local n27 = 2819071968 + (n26 + bit32.band(40928 * v60[1] + bit32.lshift(bit32.band(40928 * bit32.rshift(v59[1], 16) + 43015 * v60[1], 65535), 16), 4294967295) % 4294967296)
+				local v61 = table.pack(bit32.band(n18, 4294967295))
+				local v62 = table.pack(bit32.band(v61[1], 65535))
+				local v63 = table.pack(bit32.band(bit32.band(v62[1] * 22659 + bit32.lshift(bit32.band(v62[1] * 49381 + bit32.rshift(v61[1], 16) * 22659, 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v64 = table.pack(bit32.band(v63[1], 65535))
+				local n28 = (n25 + (n27 + (5770862624 + (bit32.band(40928 * v64[1] + bit32.lshift(bit32.band(40928 * bit32.rshift(v63[1], 16) + 43015 * v64[1], 65535), 16), 4294967295) % 4294967296 + bit32.band(bit32.bxor(n18, 1058711420), 2147483647))))) % 4294967296
+
+				for i = 1, spill.n5 do
+					local v65 = spill.tbl[i]
+					v65[spill.n3] = bit32.bxor(v65[spill.n3], n28)
+				end
+
+				local n29 = spill.n4 % 4294967296
+				local n30 = spill.n3 % 4294967296
+				local n31 = n28 % 4294967296
+				local v65 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+				local v66 = table.pack(bit32.band(v65[1], 65535))
+				local n32 = 4290726860 + bit32.band(21217 * v66[1] + bit32.lshift(bit32.band(21217 * bit32.rshift(v65[1], 16) + 31572 * v66[1], 65535), 16), 4294967295) % 4294967296
+				local v67 = table.pack(bit32.band(n30, 4294967295))
+				local v68 = table.pack(bit32.band(v67[1], 65535))
+				local v69 = table.pack(bit32.band(bit32.band(v68[1] * 46155 + bit32.lshift(bit32.band(v68[1] * 7814 + bit32.rshift(v67[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v70 = table.pack(bit32.band(v69[1], 65535))
+				local n33 = bit32.band(19403 * v70[1] + bit32.lshift(bit32.band(19403 * bit32.rshift(v69[1], 16) + 65471 * v70[1], 65535), 16), 4294967295) % 4294967296
+				local v71 = bit32.band(n31, 1058711420)
+				local v72 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+				local v73 = table.pack(bit32.band(v71, 4294967295))
+				local v74 = table.pack(bit32.band(v72[1], 65535))
+				local v75 = table.pack(bit32.rshift(v72[1], 16))
+				local v76 = table.pack(bit32.band(v73[1], 65535))
+				local v77 = table.pack(bit32.band(bit32.band(v74[1] * v76[1] + bit32.lshift(bit32.band(v74[1] * bit32.rshift(v73[1], 16) + v75[1] * v76[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v78 = table.pack(bit32.band(v77[1], 65535))
+				local n34 = bit32.band(21218 * v78[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v77[1], 16) + 31572 * v78[1], 65535), 16), 4294967295) % 4294967296
+				local v79 = table.pack(bit32.band(n31, 4294967295))
+				local v80 = table.pack(bit32.band(v79[1], 65535))
+				local n35 = n32 + (n33 + (n34 + bit32.band(65534 * v80[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v79[1], 16) + 65535 * v80[1], 65535), 16), 4294967295) % 4294967296))
+				local v81 = bit32.band(n31, 1058711420)
+				local v82 = table.pack(bit32.band(n30, 4294967295))
+				local v83 = table.pack(bit32.band(v82[1], 65535))
+				local v84 = table.pack(bit32.band(bit32.bnot(bit32.band(v83[1] * 46155 + bit32.lshift(bit32.band(v83[1] * 7814 + bit32.rshift(v82[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+				local v85 = table.pack(bit32.band(v84[1], 65535))
+				local n36 = v81 + bit32.band(19404 * v85[1] + bit32.lshift(bit32.band(19404 * bit32.rshift(v84[1], 16) + 65471 * v85[1], 65535), 16), 4294967295) % 4294967296
+				local v86 = bit32.band(n31, 1058711420)
+				local v87 = bit32.bnot(v86)
+				local v88 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+				local v89 = table.pack(bit32.band(v87, 4294967295))
+				local v90 = table.pack(bit32.band(v88[1], 65535))
+				local v91 = table.pack(bit32.rshift(v88[1], 16))
+				local v92 = table.pack(bit32.band(v89[1], 65535))
+				local v93 = table.pack(bit32.band(bit32.band(v90[1] * v92[1] + bit32.lshift(bit32.band(v90[1] * bit32.rshift(v89[1], 16) + v91[1] * v92[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v94 = table.pack(bit32.band(v93[1], 65535))
+				local n37 = bit32.band(21218 * v94[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v93[1], 16) + 31572 * v94[1], 65535), 16), 4294967295) % 4294967296
+				local v95 = bit32.bor(n29 + 502044025, n31)
+				local v96 = table.pack(bit32.band(n30, 4294967295))
+				local v97 = table.pack(bit32.band(v96[1], 65535))
+				local v98 = table.pack(bit32.band(bit32.bor(v95, bit32.band(v97[1] * 46155 + bit32.lshift(bit32.band(v97[1] * 7814 + bit32.rshift(v96[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+				local v99 = table.pack(bit32.band(v98[1], 65535))
+				local n38 = bit32.band(4 * v99[1] + bit32.lshift(bit32.band(4 * bit32.rshift(v98[1], 16) + 0 * v99[1], 65535), 16), 4294967295) % 4294967296
+				local v100 = table.pack(bit32.band(n30, 4294967295))
+				local v101 = table.pack(bit32.band(v100[1], 65535))
+				local v102 = bit32.bor(n29 + 502044025, bit32.band(v101[1] * 46155 + bit32.lshift(bit32.band(v101[1] * 7814 + bit32.rshift(v100[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296)
+				local v103 = table.pack(bit32.band(bit32.bxor(n31, v102), 4294967295))
+				local v104 = table.pack(bit32.band(v103[1], 65535))
+				local n39 = (n35 + (n36 + (n37 + (n38 + bit32.band(65534 * v104[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v103[1], 16) + 65535 * v104[1], 65535), 16), 4294967295) % 4294967296)))) % 4294967296
+				local v105 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+				local v106 = table.pack(bit32.band(v105[1], 65535))
+				local n40 = 4290726860 + bit32.band(21217 * v106[1] + bit32.lshift(bit32.band(21217 * bit32.rshift(v105[1], 16) + 31572 * v106[1], 65535), 16), 4294967295) % 4294967296
+				local v107 = table.pack(bit32.band(n30, 4294967295))
+				local v108 = table.pack(bit32.band(v107[1], 65535))
+				local v109 = table.pack(bit32.band(bit32.band(v108[1] * 46155 + bit32.lshift(bit32.band(v108[1] * 7814 + bit32.rshift(v107[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v110 = table.pack(bit32.band(v109[1], 65535))
+				local n41 = bit32.band(19403 * v110[1] + bit32.lshift(bit32.band(19403 * bit32.rshift(v109[1], 16) + 65471 * v110[1], 65535), 16), 4294967295) % 4294967296
+				local v111 = bit32.band(n31, 1058711420)
+				local v112 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+				local v113 = table.pack(bit32.band(v111, 4294967295))
+				local v114 = table.pack(bit32.band(v112[1], 65535))
+				local v115 = table.pack(bit32.rshift(v112[1], 16))
+				local v116 = table.pack(bit32.band(v113[1], 65535))
+				local v117 = table.pack(bit32.band(bit32.band(v114[1] * v116[1] + bit32.lshift(bit32.band(v114[1] * bit32.rshift(v113[1], 16) + v115[1] * v116[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v118 = table.pack(bit32.band(v117[1], 65535))
+				local n42 = bit32.band(21218 * v118[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v117[1], 16) + 31572 * v118[1], 65535), 16), 4294967295) % 4294967296
+				local v119 = table.pack(bit32.band(n31, 4294967295))
+				local v120 = table.pack(bit32.band(v119[1], 65535))
+				local n43 = n40 + (n41 + (n42 + bit32.band(65534 * v120[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v119[1], 16) + 65535 * v120[1], 65535), 16), 4294967295) % 4294967296))
+				local v121 = bit32.band(n31, 1058711420)
+				local v122 = table.pack(bit32.band(n30, 4294967295))
+				local v123 = table.pack(bit32.band(v122[1], 65535))
+				local v124 = table.pack(bit32.band(bit32.bnot(bit32.band(v123[1] * 46155 + bit32.lshift(bit32.band(v123[1] * 7814 + bit32.rshift(v122[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+				local v125 = table.pack(bit32.band(v124[1], 65535))
+				local n44 = v121 + bit32.band(19404 * v125[1] + bit32.lshift(bit32.band(19404 * bit32.rshift(v124[1], 16) + 65471 * v125[1], 65535), 16), 4294967295) % 4294967296
+				local v126 = bit32.band(n31, 1058711420)
+				local v127 = bit32.bnot(v126)
+				local v128 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+				local v129 = table.pack(bit32.band(v127, 4294967295))
+				local v130 = table.pack(bit32.band(v128[1], 65535))
+				local v131 = table.pack(bit32.rshift(v128[1], 16))
+				local v132 = table.pack(bit32.band(v129[1], 65535))
+				local v133 = table.pack(bit32.band(bit32.band(v130[1] * v132[1] + bit32.lshift(bit32.band(v130[1] * bit32.rshift(v129[1], 16) + v131[1] * v132[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v134 = table.pack(bit32.band(v133[1], 65535))
+				local n45 = bit32.band(21218 * v134[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v133[1], 16) + 31572 * v134[1], 65535), 16), 4294967295) % 4294967296
+				local v135 = bit32.bor(n29 + 502044025, n31)
+				local v136 = table.pack(bit32.band(n30, 4294967295))
+				local v137 = table.pack(bit32.band(v136[1], 65535))
+				local v138 = table.pack(bit32.band(bit32.bor(v135, bit32.band(v137[1] * 46155 + bit32.lshift(bit32.band(v137[1] * 7814 + bit32.rshift(v136[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+				local v139 = table.pack(bit32.band(v138[1], 65535))
+				local n46 = bit32.band(4 * v139[1] + bit32.lshift(bit32.band(4 * bit32.rshift(v138[1], 16) + 0 * v139[1], 65535), 16), 4294967295) % 4294967296
+				local v140 = table.pack(bit32.band(n30, 4294967295))
+				local v141 = table.pack(bit32.band(v140[1], 65535))
+				local v142 = bit32.bor(n29 + 502044025, bit32.band(v141[1] * 46155 + bit32.lshift(bit32.band(v141[1] * 7814 + bit32.rshift(v140[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296)
+				local v143 = table.pack(bit32.band(bit32.bxor(n31, v142), 4294967295))
+				local v144 = table.pack(bit32.band(v143[1], 65535))
+				local v145 = bit32.band(n43 + (n44 + (n45 + (n46 + bit32.band(65534 * v144[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v143[1], 16) + 65535 * v144[1], 65535), 16), 4294967295) % 4294967296))), 2147483647)
+				local v146 = table.pack(bit32.band(bit32.bnot(v145), 4294967295))
+				local v147 = table.pack(bit32.band(v146[1], 65535))
+				local n47 = (2597792415 + bit32.band(65535 * v147[1] + bit32.lshift(bit32.band(65535 * bit32.rshift(v146[1], 16) + 65535 * v147[1], 65535), 16), 4294967295) % 4294967296 + 1697174880) % 4294967296
+				local v148 = bit32.band(n39, 2147483647)
+				local v149 = table.pack(bit32.band(bit32.bnot(v148), 4294967295))
+				local v150 = table.pack(bit32.band(v149[1], 65535))
+				local n48 = 4038292069 + bit32.band(47410 * v150[1] + bit32.lshift(bit32.band(47410 * bit32.rshift(v149[1], 16) + 30809 * v150[1], 65535), 16), 4294967295) % 4294967296
+				local v151 = table.pack(bit32.band(bit32.bor(n39, 2147483648), 4294967295))
+				local v152 = table.pack(bit32.band(v151[1], 65535))
+				local v153 = table.pack(bit32.band(n47 - (n48 + (128337613 + bit32.band(47411 * v152[1] + bit32.lshift(bit32.band(47411 * bit32.rshift(v151[1], 16) + 30809 * v152[1], 65535), 16), 4294967295) % 4294967296)) % 4294967296, 4294967295))
+				local v154 = table.pack(bit32.band(v153[1], 65535))
+				local n49 = bit32.band(5564 * v154[1] + bit32.lshift(bit32.band(5564 * bit32.rshift(v153[1], 16) + 43723 * v154[1], 65535), 16), 4294967295) % 4294967296
+				local v155 = bit32.bnot(n39)
+				local v156 = bit32.bxor(n39, 2147483647)
+				local v157 = bit32.bor(v155, v156)
+				local v158 = table.pack(bit32.band(n39, 4294967295))
+				local v159 = table.pack(bit32.band(v157, 4294967295))
+				local v160 = table.pack(bit32.band(v158[1], 65535))
+				local v161 = table.pack(bit32.rshift(v158[1], 16))
+				local v162 = table.pack(bit32.band(v159[1], 65535))
+				local v163 = table.pack(bit32.band(bit32.band(v160[1] * v162[1] + bit32.lshift(bit32.band(v160[1] * bit32.rshift(v159[1], 16) + v161[1] * v162[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v164 = table.pack(bit32.band(v163[1], 65535))
+				local n50 = 2916381643 + bit32.band(54252 * v164[1] + bit32.lshift(bit32.band(54252 * bit32.rshift(v163[1], 16) + 62542 * v164[1], 65535), 16), 4294967295) % 4294967296
+				local v165 = bit32.bxor(n39, 2147483647)
+				local v166 = table.pack(bit32.band(bit32.bor(v155, v165), 4294967295))
+				local v167 = table.pack(bit32.band(v166[1], 65535))
+				local v168 = table.pack(bit32.band(bit32.band(65535 * v167[1] + bit32.lshift(bit32.band(65535 * bit32.rshift(v166[1], 16) + 32767 * v167[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v169 = table.pack(bit32.band(v168[1], 65535))
+				local n51 = n50 + (3526069301 + bit32.band(54252 * v169[1] + bit32.lshift(bit32.band(54252 * bit32.rshift(v168[1], 16) + 62542 * v169[1], 65535), 16), 4294967295) % 4294967296)
+				local v170 = bit32.band(n39, 2147483647)
+				local v171 = bit32.bxor(n39, 2147483647)
+				local v172 = bit32.bor(v155, v171)
+				local v173 = bit32.bxor(n39, 2147483647)
+				local v174 = table.pack(bit32.band(v172, 4294967295))
+				local v175 = table.pack(bit32.band(v173, 4294967295))
+				local v176 = table.pack(bit32.band(v174[1], 65535))
+				local v177 = table.pack(bit32.rshift(v174[1], 16))
+				local v178 = table.pack(bit32.band(v175[1], 65535))
+				local v179 = table.pack(bit32.band(bit32.band(v176[1] * v178[1] + bit32.lshift(bit32.band(v176[1] * bit32.rshift(v175[1], 16) + v177[1] * v178[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v180 = table.pack(bit32.band(v179[1], 65535))
+				local n52 = v170 + bit32.band(11284 * v180[1] + bit32.lshift(bit32.band(11284 * bit32.rshift(v179[1], 16) + 2993 * v180[1], 65535), 16), 4294967295) % 4294967296
+				local v181 = bit32.band(n39, 2147483647)
+				local v182 = bit32.bxor(n39, 2147483647)
+				local v183 = bit32.bor(v155, v182)
+				local v184 = table.pack(bit32.band(v181, 4294967295))
+				local v185 = table.pack(bit32.band(v183, 4294967295))
+				local v186 = table.pack(bit32.band(v184[1], 65535))
+				local v187 = table.pack(bit32.rshift(v184[1], 16))
+				local v188 = table.pack(bit32.band(v185[1], 65535))
+				local v189 = table.pack(bit32.band(bit32.band(v186[1] * v188[1] + bit32.lshift(bit32.band(v186[1] * bit32.rshift(v185[1], 16) + v187[1] * v188[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+				local v190 = table.pack(bit32.band(v189[1], 65535))
+				spill.n3 += 1
+				spill.n4 = (n49 + (n51 + (n52 + (2147483648 + bit32.band(22568 * v190[1] + bit32.lshift(bit32.band(22568 * bit32.rshift(v189[1], 16) + 5986 * v190[1], 65535), 16), 4294967295) % 4294967296)))) % 4294967296
+			end
+
+			local v4 = arg[arg[1]][7]
+			local n6 = buffer.len(v4) - 26 - 25
+			local n7 = 26 + 692342677 % n6
+			local n8 = 26
+
+			while true do
+				local n9 = n8 + (n7 + bit32.band(spill.n4, 255) + 1) % n6
+				local v5 = buffer.readu16(v4, n7)
+				local v6 = buffer.readu16(v4, n9)
+				local v7 = bit32.band(bit32.bxor(bit32.bxor(spill.n4, v5) + bit32.lshift(bit32.band(v6, 255), 3) + 502044025, n7), 2147483647)
+				local writei32 = buffer.writei32
+				local v8 = bit32.band(bit32.bxor(bit32.bxor(v5, v6), v7), 255)
+				writei32(v4, n7, v8)
+				local writeu32 = buffer.writeu32
+				local v9 = bit32.rshift(v7, 8)
+				local v10 = bit32.band(bit32.bxor(bit32.bxor(v6, v9), n7), 255)
+				writeu32(v4, n9, v10)
+				n7 = n8 + (n7 + bit32.band(v7, 63) + 1) % n6
+				spill.n4 = v7
+			end
+		end
+
+		LPH_CRASH()
+	end
+end)
+
+local proxy = newproxy(true)
+
+getmetatable(proxy).__tostring = function()
+	local ok, result = pcall(getfenv, 5)
+
+	if ok and result.hookfunction then
+		task.spawn(function()
+			task.wait(5)
+
+			local function fn3(arg)
+				local spill2 = {}
+				spill2.v3 = nil
+				spill2.tbl = { arg[arg[9]], arg[arg[10]], arg[arg[13]], arg[arg[8]] }
+				spill2.n2 = #spill2.tbl[1]
+				spill2.n3 = 1
+				spill2.n4 = 1026605312
+				spill2.n5 = 4
+
+				while spill2.n3 <= spill2.n2 do
+					spill2.n6 = spill2.n4 % 4294967296
+					spill2.n7 = spill2.n3 % 4294967296
+					spill2.n8 = bit32.lshift(bit32.band(spill2.n6, spill2.n7), 1) % 4294967296
+					spill2.v4 = table.pack(bit32.band(spill2.n8, 4294967295))
+					spill2.v5 = table.pack(bit32.band(spill2.v4[1], 65535))
+					spill2.n9 = bit32.band(29770 * spill2.v5[1] + bit32.lshift(bit32.band(29770 * bit32.rshift(spill2.v4[1], 16) + 56043 * spill2.v5[1], 65535), 16), 4294967295) % 4294967296
+					spill2.v6 = table.pack(bit32.band(spill2.n6, 4294967295))
+					spill2.v7 = table.pack(bit32.band(spill2.v6[1], 65535))
+					spill2.n10 = spill2.n9 + bit32.band(65533 * spill2.v7[1] + bit32.lshift(bit32.band(65533 * bit32.rshift(spill2.v6[1], 16) + 65535 * spill2.v7[1], 65535), 16), 4294967295) % 4294967296
+					spill2.v8 = bit32.bxor(spill2.n8, spill2.n6)
+					spill2.v9 = bit32.band(spill2.v8, spill2.n8)
+					spill2.v10 = table.pack(bit32.band(spill2.n6, 4294967295))
+					spill2.v11 = table.pack(bit32.band(spill2.v9, 4294967295))
+					spill2.v12 = table.pack(bit32.band(spill2.v10[1], 65535))
+					spill2.v13 = table.pack(bit32.rshift(spill2.v10[1], 16))
+					spill2.v14 = table.pack(bit32.band(spill2.v11[1], 65535))
+					spill2.v15 = table.pack(bit32.band(bit32.band(spill2.v12[1] * spill2.v14[1] + bit32.lshift(bit32.band(spill2.v12[1] * bit32.rshift(spill2.v11[1], 16) + spill2.v13[1] * spill2.v14[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					spill2.v16 = table.pack(bit32.band(spill2.v15[1], 65535))
+					spill2.n11 = bit32.band(13081 * spill2.v16[1] + bit32.lshift(bit32.band(13081 * bit32.rshift(spill2.v15[1], 16) + 3766 * spill2.v16[1], 65535), 16), 4294967295) % 4294967296
+					spill2.v17 = table.pack(bit32.band(spill2.n7, 4294967295))
+					spill2.v18 = table.pack(bit32.band(spill2.v17[1], 65535))
+					spill2.n12 = spill2.n10 + (2 + (spill2.n11 + bit32.band(65535 * spill2.v18[1] + bit32.lshift(bit32.band(65535 * bit32.rshift(spill2.v17[1], 16) + 65535 * spill2.v18[1], 65535), 16), 4294967295) % 4294967296))
+					spill2.v19 = table.pack(bit32.band(bit32.band(spill2.n8, spill2.n6), 4294967295))
+					spill2.v20 = table.pack(bit32.band(spill2.v19[1], 65535))
+					spill2.n13 = bit32.band(35769 * spill2.v20[1] + bit32.lshift(bit32.band(35769 * bit32.rshift(spill2.v19[1], 16) + 9492 * spill2.v20[1], 65535), 16), 4294967295) % 4294967296
+					spill2.v21 = bit32.bor(spill2.n8, spill2.n7)
+					spill2.v22 = table.pack(bit32.band(bit32.bnot(spill2.v21), 4294967295))
+					spill2.v23 = table.pack(bit32.band(spill2.v22[1], 65535))
+					spill2.n14 = bit32.band(2 * spill2.v23[1] + bit32.lshift(bit32.band(2 * bit32.rshift(spill2.v22[1], 16) + 0 * spill2.v23[1], 65535), 16), 4294967295) % 4294967296
+					spill2.v24 = bit32.band(spill2.n6, spill2.n8)
+					spill2.v25 = bit32.bxor(spill2.n8, spill2.v24)
+					spill2.v26 = table.pack(bit32.band(spill2.n6, 4294967295))
+					spill2.v27 = table.pack(bit32.band(spill2.v25, 4294967295))
+					spill2.v28 = table.pack(bit32.band(spill2.v26[1], 65535))
+					spill2.v29 = table.pack(bit32.rshift(spill2.v26[1], 16))
+					spill2.v30 = table.pack(bit32.band(spill2.v27[1], 65535))
+					spill2.v31 = table.pack(bit32.band(bit32.band(spill2.v28[1] * spill2.v30[1] + bit32.lshift(bit32.band(spill2.v28[1] * bit32.rshift(spill2.v27[1], 16) + spill2.v29[1] * spill2.v30[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					spill2.v32 = table.pack(bit32.band(spill2.v31[1], 65535))
+					spill2.n15 = spill2.n13 + (spill2.n14 + bit32.band(52455 * spill2.v32[1] + bit32.lshift(bit32.band(52455 * bit32.rshift(spill2.v31[1], 16) + 61769 * spill2.v32[1], 65535), 16), 4294967295) % 4294967296)
+					spill2.v33 = table.pack(bit32.band(bit32.band(spill2.n7, spill2.v8), 4294967295))
+					spill2.v34 = table.pack(bit32.band(spill2.v33[1], 65535))
+					spill2.n16 = bit32.band(2 * spill2.v34[1] + bit32.lshift(bit32.band(2 * bit32.rshift(spill2.v33[1], 16) + 0 * spill2.v34[1], 65535), 16), 4294967295) % 4294967296
+					spill2.v35 = table.pack(bit32.band(spill2.v9, 4294967295))
+					spill2.v36 = table.pack(bit32.band(spill2.v35[1], 65535))
+					spill2.n17 = bit32.band(35765 * spill2.v36[1] + bit32.lshift(bit32.band(35765 * bit32.rshift(spill2.v35[1], 16) + 9492 * spill2.v36[1], 65535), 16), 4294967295) % 4294967296
+					local v37 = bit32.bxor(spill2.n7, spill2.n8)
+					local v38 = bit32.bor(spill2.n8, spill2.n6)
+					local v39 = table.pack(bit32.band(bit32.bor(v37, v38), 4294967295))
+					local v40 = table.pack(bit32.band(v39[1], 65535))
+					local n18 = (spill2.n12 + (spill2.n15 + (spill2.n16 + (spill2.n17 + bit32.band(4 * v40[1] + bit32.lshift(bit32.band(4 * bit32.rshift(v39[1], 16) + 0 * v40[1], 65535), 16), 4294967295) % 4294967296)))) % 4294967296
+					local n19 = bit32.band(bit32.bxor(n18, 1058711420), 2147483647) + 2130617448
+					local v41 = bit32.band(2147483647, n18)
+					local v42 = table.pack(bit32.band(bit32.bnot(v41), 4294967295))
+					local v43 = table.pack(bit32.band(v42[1], 65535))
+					local n20 = bit32.band(21044 * v43[1] + bit32.lshift(bit32.band(21044 * bit32.rshift(v42[1], 16) + 49023 * v43[1], 65535), 16), 4294967295) % 4294967296
+					local v44 = bit32.bnot(n18)
+					local v45 = bit32.bor(2147483647, n18)
+					local v46 = table.pack(bit32.band(bit32.bxor(v44, v45), 4294967295))
+					local v47 = table.pack(bit32.band(v46[1], 65535))
+					local n21 = (n19 + (1082174924 + (n20 + bit32.band(21044 * v47[1] + bit32.lshift(bit32.band(21044 * bit32.rshift(v46[1], 16) + 49023 * v47[1], 65535), 16), 4294967295) % 4294967296))) % 4294967296
+					local n22 = bit32.band(bit32.bxor(n18, 1058711420), 2147483647) + 4257842379
+					local v48 = table.pack(bit32.band(bit32.band(bit32.bxor(n18, 1058711420), 3236255875), 4294967295))
+					local v49 = table.pack(bit32.band(v48[1], 65535))
+					local n23 = bit32.band(33995 * v49[1] + bit32.lshift(bit32.band(33995 * bit32.rshift(v48[1], 16) + 64969 * v49[1], 65535), 16), 4294967295) % 4294967296
+					local v50 = bit32.bor(1058711420, n18)
+					local v51 = table.pack(bit32.band(bit32.bnot(v50), 4294967295))
+					local v52 = table.pack(bit32.band(v51[1], 65535))
+					local n24 = (n22 + (3571105620 + (n23 + bit32.band(33995 * v52[1] + bit32.lshift(bit32.band(33995 * bit32.rshift(v51[1], 16) + 64969 * v52[1], 65535), 16), 4294967295) % 4294967296))) % 4294967296
+					local v53 = table.pack(bit32.band(n21 - n24, 4294967295))
+					local v54 = table.pack(bit32.band(v53[1], 65535))
+					local n25 = bit32.band(9550 * v54[1] + bit32.lshift(bit32.band(9550 * bit32.rshift(v53[1], 16) + 4552 * v54[1], 65535), 16), 4294967295) % 4294967296
+					local v55 = table.pack(bit32.band(n18, 4294967295))
+					local v56 = table.pack(bit32.band(v55[1], 65535))
+					local n26 = bit32.band(40928 * v56[1] + bit32.lshift(bit32.band(40928 * bit32.rshift(v55[1], 16) + 43015 * v56[1], 65535), 16), 4294967295) % 4294967296
+					local v57 = table.pack(bit32.band(n18, 4294967295))
+					local v58 = table.pack(bit32.band(v57[1], 65535))
+					local v59 = table.pack(bit32.band(bit32.band(v58[1] * 42876 + bit32.lshift(bit32.band(v58[1] * 16154 + bit32.rshift(v57[1], 16) * 42876, 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v60 = table.pack(bit32.band(v59[1], 65535))
+					local n27 = 2819071968 + (n26 + bit32.band(40928 * v60[1] + bit32.lshift(bit32.band(40928 * bit32.rshift(v59[1], 16) + 43015 * v60[1], 65535), 16), 4294967295) % 4294967296)
+					local v61 = table.pack(bit32.band(n18, 4294967295))
+					local v62 = table.pack(bit32.band(v61[1], 65535))
+					local v63 = table.pack(bit32.band(bit32.band(v62[1] * 22659 + bit32.lshift(bit32.band(v62[1] * 49381 + bit32.rshift(v61[1], 16) * 22659, 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v64 = table.pack(bit32.band(v63[1], 65535))
+					local n28 = (n25 + (n27 + (5770862624 + (bit32.band(40928 * v64[1] + bit32.lshift(bit32.band(40928 * bit32.rshift(v63[1], 16) + 43015 * v64[1], 65535), 16), 4294967295) % 4294967296 + bit32.band(bit32.bxor(n18, 1058711420), 2147483647))))) % 4294967296
+
+					for i = 1, spill2.n5 do
+						local v65 = spill2.tbl[i]
+						v65[spill2.n3] = bit32.bxor(v65[spill2.n3], n28)
+					end
+
+					local n29 = spill2.n4 % 4294967296
+					local n30 = spill2.n3 % 4294967296
+					local n31 = n28 % 4294967296
+					local v65 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+					local v66 = table.pack(bit32.band(v65[1], 65535))
+					local n32 = 4290726860 + bit32.band(21217 * v66[1] + bit32.lshift(bit32.band(21217 * bit32.rshift(v65[1], 16) + 31572 * v66[1], 65535), 16), 4294967295) % 4294967296
+					local v67 = table.pack(bit32.band(n30, 4294967295))
+					local v68 = table.pack(bit32.band(v67[1], 65535))
+					local v69 = table.pack(bit32.band(bit32.band(v68[1] * 46155 + bit32.lshift(bit32.band(v68[1] * 7814 + bit32.rshift(v67[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v70 = table.pack(bit32.band(v69[1], 65535))
+					local n33 = bit32.band(19403 * v70[1] + bit32.lshift(bit32.band(19403 * bit32.rshift(v69[1], 16) + 65471 * v70[1], 65535), 16), 4294967295) % 4294967296
+					local v71 = bit32.band(n31, 1058711420)
+					local v72 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+					local v73 = table.pack(bit32.band(v71, 4294967295))
+					local v74 = table.pack(bit32.band(v72[1], 65535))
+					local v75 = table.pack(bit32.rshift(v72[1], 16))
+					local v76 = table.pack(bit32.band(v73[1], 65535))
+					local v77 = table.pack(bit32.band(bit32.band(v74[1] * v76[1] + bit32.lshift(bit32.band(v74[1] * bit32.rshift(v73[1], 16) + v75[1] * v76[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v78 = table.pack(bit32.band(v77[1], 65535))
+					local n34 = bit32.band(21218 * v78[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v77[1], 16) + 31572 * v78[1], 65535), 16), 4294967295) % 4294967296
+					local v79 = table.pack(bit32.band(n31, 4294967295))
+					local v80 = table.pack(bit32.band(v79[1], 65535))
+					local n35 = n32 + (n33 + (n34 + bit32.band(65534 * v80[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v79[1], 16) + 65535 * v80[1], 65535), 16), 4294967295) % 4294967296))
+					local v81 = bit32.band(n31, 1058711420)
+					local v82 = table.pack(bit32.band(n30, 4294967295))
+					local v83 = table.pack(bit32.band(v82[1], 65535))
+					local v84 = table.pack(bit32.band(bit32.bnot(bit32.band(v83[1] * 46155 + bit32.lshift(bit32.band(v83[1] * 7814 + bit32.rshift(v82[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+					local v85 = table.pack(bit32.band(v84[1], 65535))
+					local n36 = v81 + bit32.band(19404 * v85[1] + bit32.lshift(bit32.band(19404 * bit32.rshift(v84[1], 16) + 65471 * v85[1], 65535), 16), 4294967295) % 4294967296
+					local v86 = bit32.band(n31, 1058711420)
+					local v87 = bit32.bnot(v86)
+					local v88 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+					local v89 = table.pack(bit32.band(v87, 4294967295))
+					local v90 = table.pack(bit32.band(v88[1], 65535))
+					local v91 = table.pack(bit32.rshift(v88[1], 16))
+					local v92 = table.pack(bit32.band(v89[1], 65535))
+					local v93 = table.pack(bit32.band(bit32.band(v90[1] * v92[1] + bit32.lshift(bit32.band(v90[1] * bit32.rshift(v89[1], 16) + v91[1] * v92[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v94 = table.pack(bit32.band(v93[1], 65535))
+					local n37 = bit32.band(21218 * v94[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v93[1], 16) + 31572 * v94[1], 65535), 16), 4294967295) % 4294967296
+					local v95 = bit32.bor(n29 + 502044025, n31)
+					local v96 = table.pack(bit32.band(n30, 4294967295))
+					local v97 = table.pack(bit32.band(v96[1], 65535))
+					local v98 = table.pack(bit32.band(bit32.bor(v95, bit32.band(v97[1] * 46155 + bit32.lshift(bit32.band(v97[1] * 7814 + bit32.rshift(v96[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+					local v99 = table.pack(bit32.band(v98[1], 65535))
+					local n38 = bit32.band(4 * v99[1] + bit32.lshift(bit32.band(4 * bit32.rshift(v98[1], 16) + 0 * v99[1], 65535), 16), 4294967295) % 4294967296
+					local v100 = table.pack(bit32.band(n30, 4294967295))
+					local v101 = table.pack(bit32.band(v100[1], 65535))
+					local v102 = bit32.bor(n29 + 502044025, bit32.band(v101[1] * 46155 + bit32.lshift(bit32.band(v101[1] * 7814 + bit32.rshift(v100[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296)
+					local v103 = table.pack(bit32.band(bit32.bxor(n31, v102), 4294967295))
+					local v104 = table.pack(bit32.band(v103[1], 65535))
+					local n39 = (n35 + (n36 + (n37 + (n38 + bit32.band(65534 * v104[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v103[1], 16) + 65535 * v104[1], 65535), 16), 4294967295) % 4294967296)))) % 4294967296
+					local v105 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+					local v106 = table.pack(bit32.band(v105[1], 65535))
+					local n40 = 4290726860 + bit32.band(21217 * v106[1] + bit32.lshift(bit32.band(21217 * bit32.rshift(v105[1], 16) + 31572 * v106[1], 65535), 16), 4294967295) % 4294967296
+					local v107 = table.pack(bit32.band(n30, 4294967295))
+					local v108 = table.pack(bit32.band(v107[1], 65535))
+					local v109 = table.pack(bit32.band(bit32.band(v108[1] * 46155 + bit32.lshift(bit32.band(v108[1] * 7814 + bit32.rshift(v107[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v110 = table.pack(bit32.band(v109[1], 65535))
+					local n41 = bit32.band(19403 * v110[1] + bit32.lshift(bit32.band(19403 * bit32.rshift(v109[1], 16) + 65471 * v110[1], 65535), 16), 4294967295) % 4294967296
+					local v111 = bit32.band(n31, 1058711420)
+					local v112 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+					local v113 = table.pack(bit32.band(v111, 4294967295))
+					local v114 = table.pack(bit32.band(v112[1], 65535))
+					local v115 = table.pack(bit32.rshift(v112[1], 16))
+					local v116 = table.pack(bit32.band(v113[1], 65535))
+					local v117 = table.pack(bit32.band(bit32.band(v114[1] * v116[1] + bit32.lshift(bit32.band(v114[1] * bit32.rshift(v113[1], 16) + v115[1] * v116[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v118 = table.pack(bit32.band(v117[1], 65535))
+					local n42 = bit32.band(21218 * v118[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v117[1], 16) + 31572 * v118[1], 65535), 16), 4294967295) % 4294967296
+					local v119 = table.pack(bit32.band(n31, 4294967295))
+					local v120 = table.pack(bit32.band(v119[1], 65535))
+					local n43 = n40 + (n41 + (n42 + bit32.band(65534 * v120[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v119[1], 16) + 65535 * v120[1], 65535), 16), 4294967295) % 4294967296))
+					local v121 = bit32.band(n31, 1058711420)
+					local v122 = table.pack(bit32.band(n30, 4294967295))
+					local v123 = table.pack(bit32.band(v122[1], 65535))
+					local v124 = table.pack(bit32.band(bit32.bnot(bit32.band(v123[1] * 46155 + bit32.lshift(bit32.band(v123[1] * 7814 + bit32.rshift(v122[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+					local v125 = table.pack(bit32.band(v124[1], 65535))
+					local n44 = v121 + bit32.band(19404 * v125[1] + bit32.lshift(bit32.band(19404 * bit32.rshift(v124[1], 16) + 65471 * v125[1], 65535), 16), 4294967295) % 4294967296
+					local v126 = bit32.band(n31, 1058711420)
+					local v127 = bit32.bnot(v126)
+					local v128 = table.pack(bit32.band(n29 + 502044025, 4294967295))
+					local v129 = table.pack(bit32.band(v127, 4294967295))
+					local v130 = table.pack(bit32.band(v128[1], 65535))
+					local v131 = table.pack(bit32.rshift(v128[1], 16))
+					local v132 = table.pack(bit32.band(v129[1], 65535))
+					local v133 = table.pack(bit32.band(bit32.band(v130[1] * v132[1] + bit32.lshift(bit32.band(v130[1] * bit32.rshift(v129[1], 16) + v131[1] * v132[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v134 = table.pack(bit32.band(v133[1], 65535))
+					local n45 = bit32.band(21218 * v134[1] + bit32.lshift(bit32.band(21218 * bit32.rshift(v133[1], 16) + 31572 * v134[1], 65535), 16), 4294967295) % 4294967296
+					local v135 = bit32.bor(n29 + 502044025, n31)
+					local v136 = table.pack(bit32.band(n30, 4294967295))
+					local v137 = table.pack(bit32.band(v136[1], 65535))
+					local v138 = table.pack(bit32.band(bit32.bor(v135, bit32.band(v137[1] * 46155 + bit32.lshift(bit32.band(v137[1] * 7814 + bit32.rshift(v136[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296), 4294967295))
+					local v139 = table.pack(bit32.band(v138[1], 65535))
+					local n46 = bit32.band(4 * v139[1] + bit32.lshift(bit32.band(4 * bit32.rshift(v138[1], 16) + 0 * v139[1], 65535), 16), 4294967295) % 4294967296
+					local v140 = table.pack(bit32.band(n30, 4294967295))
+					local v141 = table.pack(bit32.band(v140[1], 65535))
+					local v142 = bit32.bor(n29 + 502044025, bit32.band(v141[1] * 46155 + bit32.lshift(bit32.band(v141[1] * 7814 + bit32.rshift(v140[1], 16) * 46155, 65535), 16), 4294967295) % 4294967296)
+					local v143 = table.pack(bit32.band(bit32.bxor(n31, v142), 4294967295))
+					local v144 = table.pack(bit32.band(v143[1], 65535))
+					local v145 = bit32.band(n43 + (n44 + (n45 + (n46 + bit32.band(65534 * v144[1] + bit32.lshift(bit32.band(65534 * bit32.rshift(v143[1], 16) + 65535 * v144[1], 65535), 16), 4294967295) % 4294967296))), 2147483647)
+					local v146 = table.pack(bit32.band(bit32.bnot(v145), 4294967295))
+					local v147 = table.pack(bit32.band(v146[1], 65535))
+					local n47 = (2597792415 + bit32.band(65535 * v147[1] + bit32.lshift(bit32.band(65535 * bit32.rshift(v146[1], 16) + 65535 * v147[1], 65535), 16), 4294967295) % 4294967296 + 1697174880) % 4294967296
+					local v148 = bit32.band(n39, 2147483647)
+					local v149 = table.pack(bit32.band(bit32.bnot(v148), 4294967295))
+					local v150 = table.pack(bit32.band(v149[1], 65535))
+					local n48 = 4038292069 + bit32.band(47410 * v150[1] + bit32.lshift(bit32.band(47410 * bit32.rshift(v149[1], 16) + 30809 * v150[1], 65535), 16), 4294967295) % 4294967296
+					local v151 = table.pack(bit32.band(bit32.bor(n39, 2147483648), 4294967295))
+					local v152 = table.pack(bit32.band(v151[1], 65535))
+					local v153 = table.pack(bit32.band(n47 - (n48 + (128337613 + bit32.band(47411 * v152[1] + bit32.lshift(bit32.band(47411 * bit32.rshift(v151[1], 16) + 30809 * v152[1], 65535), 16), 4294967295) % 4294967296)) % 4294967296, 4294967295))
+					local v154 = table.pack(bit32.band(v153[1], 65535))
+					local n49 = bit32.band(5564 * v154[1] + bit32.lshift(bit32.band(5564 * bit32.rshift(v153[1], 16) + 43723 * v154[1], 65535), 16), 4294967295) % 4294967296
+					local v155 = bit32.bnot(n39)
+					local v156 = bit32.bxor(n39, 2147483647)
+					local v157 = bit32.bor(v155, v156)
+					local v158 = table.pack(bit32.band(n39, 4294967295))
+					local v159 = table.pack(bit32.band(v157, 4294967295))
+					local v160 = table.pack(bit32.band(v158[1], 65535))
+					local v161 = table.pack(bit32.rshift(v158[1], 16))
+					local v162 = table.pack(bit32.band(v159[1], 65535))
+					local v163 = table.pack(bit32.band(bit32.band(v160[1] * v162[1] + bit32.lshift(bit32.band(v160[1] * bit32.rshift(v159[1], 16) + v161[1] * v162[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v164 = table.pack(bit32.band(v163[1], 65535))
+					local n50 = 2916381643 + bit32.band(54252 * v164[1] + bit32.lshift(bit32.band(54252 * bit32.rshift(v163[1], 16) + 62542 * v164[1], 65535), 16), 4294967295) % 4294967296
+					local v165 = bit32.bxor(n39, 2147483647)
+					local v166 = table.pack(bit32.band(bit32.bor(v155, v165), 4294967295))
+					local v167 = table.pack(bit32.band(v166[1], 65535))
+					local v168 = table.pack(bit32.band(bit32.band(65535 * v167[1] + bit32.lshift(bit32.band(65535 * bit32.rshift(v166[1], 16) + 32767 * v167[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v169 = table.pack(bit32.band(v168[1], 65535))
+					local n51 = n50 + (3526069301 + bit32.band(54252 * v169[1] + bit32.lshift(bit32.band(54252 * bit32.rshift(v168[1], 16) + 62542 * v169[1], 65535), 16), 4294967295) % 4294967296)
+					local v170 = bit32.band(n39, 2147483647)
+					local v171 = bit32.bxor(n39, 2147483647)
+					local v172 = bit32.bor(v155, v171)
+					local v173 = bit32.bxor(n39, 2147483647)
+					local v174 = table.pack(bit32.band(v172, 4294967295))
+					local v175 = table.pack(bit32.band(v173, 4294967295))
+					local v176 = table.pack(bit32.band(v174[1], 65535))
+					local v177 = table.pack(bit32.rshift(v174[1], 16))
+					local v178 = table.pack(bit32.band(v175[1], 65535))
+					local v179 = table.pack(bit32.band(bit32.band(v176[1] * v178[1] + bit32.lshift(bit32.band(v176[1] * bit32.rshift(v175[1], 16) + v177[1] * v178[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v180 = table.pack(bit32.band(v179[1], 65535))
+					local n52 = v170 + bit32.band(11284 * v180[1] + bit32.lshift(bit32.band(11284 * bit32.rshift(v179[1], 16) + 2993 * v180[1], 65535), 16), 4294967295) % 4294967296
+					local v181 = bit32.band(n39, 2147483647)
+					local v182 = bit32.bxor(n39, 2147483647)
+					local v183 = bit32.bor(v155, v182)
+					local v184 = table.pack(bit32.band(v181, 4294967295))
+					local v185 = table.pack(bit32.band(v183, 4294967295))
+					local v186 = table.pack(bit32.band(v184[1], 65535))
+					local v187 = table.pack(bit32.rshift(v184[1], 16))
+					local v188 = table.pack(bit32.band(v185[1], 65535))
+					local v189 = table.pack(bit32.band(bit32.band(v186[1] * v188[1] + bit32.lshift(bit32.band(v186[1] * bit32.rshift(v185[1], 16) + v187[1] * v188[1], 65535), 16), 4294967295) % 4294967296, 4294967295))
+					local v190 = table.pack(bit32.band(v189[1], 65535))
+					spill2.n3 += 1
+					spill2.n4 = (n49 + (n51 + (n52 + (2147483648 + bit32.band(22568 * v190[1] + bit32.lshift(bit32.band(22568 * bit32.rshift(v189[1], 16) + 5986 * v190[1], 65535), 16), 4294967295) % 4294967296)))) % 4294967296
+				end
+
+				local v4 = arg[arg[1]][7]
+				local n6 = buffer.len(v4) - 26 - 25
+				local n7 = 26 + 692342677 % n6
+				local n8 = 26
+
+				while true do
+					local n9 = n8 + (n7 + bit32.band(spill2.n4, 255) + 1) % n6
+					local v5 = buffer.readu16(v4, n7)
+					local v6 = buffer.readu16(v4, n9)
+					local v7 = bit32.band(bit32.bxor(bit32.bxor(spill2.n4, v5) + bit32.lshift(bit32.band(v6, 255), 3) + 502044025, n7), 2147483647)
+					local writei32 = buffer.writei32
+					local v8 = bit32.band(bit32.bxor(bit32.bxor(v5, v6), v7), 255)
+					writei32(v4, n7, v8)
+					local writeu32 = buffer.writeu32
+					local v9 = bit32.rshift(v7, 8)
+					local v10 = bit32.band(bit32.bxor(bit32.bxor(v6, v9), n7), 255)
+					writeu32(v4, n9, v10)
+					n7 = n8 + (n7 + bit32.band(v7, 63) + 1) % n6
+					spill2.n4 = v7
+				end
+			end
+
+			LPH_CRASH()
+		end)
+
+		local tbl = { 121, 12121, 121, -121, -121, 121, 35 }
+		local n2 = 0
+
+		for match in jobId:gmatch("%d") do
+			n2 = (n2 * 31 + (match:byte() - 48)) % 32 + 1
+		end
+
+		shared.r[n2](tbl)
+	end
+
+	return ""
+end
+
+task.spawn(function()
+	local function fn3(arg)
+		local v3 = table.pack(debug.info(arg, "slfn"))
+		if type(v3[3]) == "function" and getfenv(v3[3]).hookfunction then
+			return true
+		end
+	end
+
+	while task.wait(5) do
+		if fn3(index.GetCameraData) then
+			local tbl = {
+				[1] = -4,
+				[10] = -640,
+				[2] = -5,
+				[3] = -6,
+				[4] = 400,
+				[5] = 500,
+				[6] = 600,
+				[7] = 32,
+				[8] = 640,
+				[9] = -32,
+			}
+
+			local n2 = 0
+
+			for match in jobId:gmatch("%d") do
+				n2 = (n2 * 31 + (match:byte() - 48)) % 32 + 1
+			end
+
+			shared.r[n2](tbl)
+		end
+	end
+end)
+
+local n2 = 1
+local v3 = index
+
+local function fn3(arg, arg2)
+	local tbl = {}
+	local n3 = #arg2
+
+	for i = 1, #arg do
+		local v4 = string.byte(arg, i)
+		local v5 = string.byte(arg2, (i - 1) % n3 + 1)
+		tbl[i] = string.char(bit32.bxor(v4, v5))
+	end
+
+	return table.concat(tbl)
+end
+
+local tbl = {}
+
+for k, v4 in v3 do
+	tbl[fn3(k, "5sfhgsn")] = v4
+end
+
+local tbl2 = {
+	__index = function(arg, arg2)
+		local tbl2 = {}
+
+		for i = 1, 15 do
+			pcall(function()
+				table.insert(tbl2, getfenv(i))
+			end)
+		end
+
+		for _, v4 in next, tbl2 do
+			if type(v4) == "table" and rawget(v4, "hookfunction") then
+				return function()
+				end
+			end
+		end
+
+		return tbl[fn3(arg2, "5sfhgsn")]
+	end,
+	__newindex = function(arg, arg2, arg3)
+		tbl[fn3(arg2, "5sfhgsn")] = arg3
+	end,
+}
+
+d3fdnt = {
+	__index = function(arg, arg2)
+		local tbl3 = {}
+
+		for i = 1, 15 do
+			pcall(function()
+				table.insert(tbl3, getfenv(i))
+			end)
+		end
+
+		for _, v4 in next, tbl3 do
+			if type(v4) == "table" and rawget(v4, "hookfunction") then
+				return function()
+				end
+			end
+		end
+
+		return tbl[fn3(arg2, "5sfhgsn")]
+	end,
+	__newindex = function(arg, arg2, arg3)
+		tbl[fn3(arg2, "5sfhgsn")] = arg3
+	end,
+}
+
+dffsfdnt = {
+	__index = function(arg, arg2)
+		local tbl3 = {}
+
+		for i = 1, 15 do
+			pcall(function()
+				table.insert(tbl3, getfenv(i))
+			end)
+		end
+
+		for _, v4 in next, tbl3 do
+			if type(v4) == "table" and rawget(v4, "hookfunction") then
+				return function()
+				end
+			end
+		end
+
+		return tbl[fn3(arg2, "5sfhgsn")]
+	end,
+	__newindex = function(arg, arg2, arg3)
+		tbl[fn3(arg2, "5sfhgsn")] = arg3
+	end,
+}
+
+local n3 = 0
+
+return function()
+	if n2 < n3 then
+		local tbl3 = { -220, 22, 220 }
+		local n4 = 0
+
+		for match in jobId:gmatch("%d") do
+			n4 = (n4 * 31 + (match:byte() - 48)) % 32 + 1
+		end
+
+		shared.r[n4](tbl3)
+	end
+
+	n3 += 1
+	local flag = false
+
+	pcall(function()
+		flag = true
+		return game.RunService
+	end)
+
+	flag = false
+
+	xpcall(function()
+		return game.RunService
+	end, function()
+		flag = true
+	end)
+
+	local tbl3 = {}
+
+	for i = 1, 15 do
+		if pcall(function()
+			tbl3[i] = { debug.info(i, "slfn") }
+		end) then
+			continue
+		end
+		break
+	end
+
+	for _, v4 in next, tbl3 do
+		if type(v4[3]) == "function" and getfenv(v4[3]).hookfunction then
+			local tbl4 = { -230, 230, 230, 230, 40, 0 }
+			local n4 = 0
+
+			for match in jobId:gmatch("%d") do
+				n4 = (n4 * 31 + (match:byte() - 48)) % 32 + 1
+			end
+
+			shared.r[n4](tbl4)
+		end
+	end
+
+	flag = false
+
+	ypcall(function()
+		flag = true
+		return game.RunService
+	end)
+
+	return v3
+end

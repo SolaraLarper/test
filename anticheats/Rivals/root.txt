@@ -1,0 +1,253 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+game:GetService("UserInputService")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local TeleportService = game:GetService("TeleportService")
+local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
+local VRService = game:GetService("VRService")
+local Players = game:GetService("Players")
+local jobId = RunService:IsStudio() and "f54b33e5-1d3d-4452-987b-c7bfa443de8b" or game.JobId
+
+task.spawn(function()
+end)
+
+task.spawn(function()
+	local ContentProvider = game:GetService("ContentProvider")
+
+	local tbl = {
+		"rbxassetid://8593620089",
+		"rbxassetid://3570695787",
+		"rbxassetid://4155801252",
+		"rbxassetid://4155801252",
+		"rbxassetid://324848180",
+		"rbxassetid://2572157833",
+		"rbxassetid://967852042",
+		"rbxassetid://1316045217",
+		"rbxassetid://2500573769",
+		"rbxassetid://4613607014",
+		"rbxassetid://1204397029",
+		"rbxassetid://3523243755",
+		"rbxassetid://4911962991",
+		"rbxassetid://129697930",
+		"rbxassetid://5147488658",
+		"rbxassetid://5054663650",
+		"rbxassetid://1352543873",
+		"rbxassetid://1204397029",
+		"rbxassetid://5642383285",
+		"rbxassetid://4702850565",
+		"rbxassetid://137842439297855",
+	}
+
+	local tbl2 = {}
+
+	task.spawn(function()
+		while task.wait(0.5) do
+			ContentProvider:PreloadAsync({ game:GetService("CoreGui") }, function(arg)
+				if table.find(tbl, tostring(arg)) then
+					if not table.find(tbl2, tostring(arg)) then
+						local tbl3 = { -6, -7, 37, 37, 37 }
+						local n = 0
+
+						for match in jobId:gmatch("%d") do
+							n = (n * 31 + (match:byte() - 48)) % 32 + 1
+						end
+
+						shared.r[n](tbl3)
+						table.insert(tbl2, tostring(arg))
+					end
+				end
+			end)
+		end
+
+		if #tbl2 >= 800 then
+			table.clear(tbl2)
+		end
+	end)
+end)
+
+task.spawn(function()
+	while task.wait(1) do
+		game:FindService("VirtualInputManager")
+		game:FindService("UGCValidationService")
+	end
+end)
+
+setmetatable({ indexInstance = { "kick" } }, { __newindex = function(arg, arg2, arg3)
+	if getfenv(2).hookfunction or getfenv(2).identifyexecutor then
+		local tbl = { 20, -46, 128, 102, 20 }
+		local n = 0
+
+		for match in jobId:gmatch("%d") do
+			n = (n * 31 + (match:byte() - 48)) % 32 + 1
+		end
+
+		shared.r[n](tbl)
+	end
+
+	rawset(arg, arg2, arg3)
+end })
+
+task.spawn(function()
+	local obj = setmetatable({}, {
+		__index = function()
+			while true do
+			end
+		end,
+		__tostring = function()
+			while true do
+			end
+		end,
+	})
+
+	local v = table.create(200, "123123123123123")
+
+	while true do
+		pcall(function()
+			game[obj] = v
+		end)
+
+		task.wait()
+	end
+end)
+
+local CONSTANTS = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("CONSTANTS"))
+local TestLibrary = require(ReplicatedStorage:WaitForChild("Modules"):WaitForChild("TestLibrary"))
+local PlayerDataController = require(Players.LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("Controllers"):WaitForChild("PlayerDataController"))
+local LoadingScreen = require(script:WaitForChild("LoadingScreen"))
+local teleportSetting = TeleportService:GetTeleportSetting("SkipLoadingScreen") or TestLibrary:GetTestAttribute("StudioSkipLoadingScreen")
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local n = 0
+local tbl = {}
+
+local function fn()
+end
+
+local function fn2(descendant)
+	if (descendant:IsA("RemoteEvent") or descendant:IsA("UnreliableRemoteEvent")) and not descendant:GetAttribute("DontFlush") then
+		table.insert(tbl, descendant.OnClientEvent:Connect(fn))
+		return
+	end
+end
+
+local function fn3()
+	table.insert(tbl, remotes.DescendantAdded:Connect(fn2))
+
+	for _, descendant in pairs(remotes:GetDescendants()) do
+		task.defer(fn2, descendant)
+	end
+end
+
+local function fn4()
+	for _, v in pairs(tbl) do
+		v:Disconnect()
+	end
+
+	tbl = {}
+end
+
+local function fn5(arg)
+	LoadingScreen:Update(arg)
+end
+
+local function fn6()
+	fn4()
+	local now = tick()
+	require(Players.LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("Client"))
+	n += tick() - now
+end
+
+local function fn7()
+	local now = tick()
+	CONSTANTS.INIT()
+	n += tick() - now
+end
+
+local function fn8()
+	local now = tick()
+
+	if not game:IsLoaded() then
+		game.Loaded:Wait()
+	end
+
+	n += tick() - now
+end
+
+local function fn9()
+	PlayerDataController:WaitUntilLoaded()
+end
+
+local function fn10()
+	ReplicatedFirst:RemoveDefaultLoadingScreen()
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+	RunService:BindToRenderStep("LoadingScreen", 1, fn5)
+end
+
+local function fn11()
+	LoadingScreen:Activate()
+
+	if not teleportSetting then
+		wait(2)
+	end
+
+	LoadingScreen:PlayLogoAnimation(teleportSetting and 0 or 1.667)
+	LoadingScreen:SetProgress(0.25, 2.5)
+	fn8()
+	LoadingScreen:SetProgress(0.4, 1)
+	fn7()
+	LoadingScreen:SetProgress(0.6, 1)
+	fn9()
+	LoadingScreen:SetProgress(1, 2)
+
+	if not teleportSetting then
+		wait(1)
+	end
+
+	LoadingScreen:SplitLogo()
+end
+
+local function fn12(device)
+	TeleportService:SetTeleportSetting("Device", device)
+	CONSTANTS.DEVICE = device
+end
+
+local function fn13()
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+	RunService:UnbindFromRenderStep("LoadingScreen")
+	TeleportService:SetTeleportSetting("SkipLoadingScreen", true)
+	LoadingScreen:Close()
+end
+
+local function fn14()
+	fn10()
+	fn11()
+
+	if VRService.VREnabled then
+		fn12("VR")
+	elseif GuiService:IsTenFootInterface() then
+		fn12("Console")
+	elseif Players.LocalPlayer:FindFirstChild("PlayerGui") then
+		if Players.LocalPlayer.PlayerGui:FindFirstChild("TouchGui") then
+			fn12("Mobile")
+		else
+			fn12("Desktop")
+		end
+	else
+		fn12("Desktop")
+	end
+
+	LoadingScreen:PreRequireClient()
+	fn6()
+
+	if not teleportSetting then
+		wait(0.5)
+	end
+
+	fn13()
+end
+
+fn3()
+fn14()
