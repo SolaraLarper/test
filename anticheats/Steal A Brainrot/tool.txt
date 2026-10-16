@@ -1,0 +1,53 @@
+local function fn()
+end
+
+local v = table.pack(fn(nil, nil))
+
+if v[1] ~= nil then
+	return "Silly Goose"
+end
+
+wait()
+script.Disabled = true
+script.Parent = nil
+script = Instance.new("LocalScript")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local localPlayer = Players.LocalPlayer
+local Cooldown = require(ReplicatedStorage:WaitForChild("Packages").Net):RemoteEvent("Tools/Cooldown")
+local remoteEvent = Instance.new("RemoteEvent")
+local n = 0
+local n2 = 0
+
+local function fn2()
+	return string.pack("ff", n, n2)
+end
+
+local function fn3(arg)
+	local walkSpeed = localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid") and localPlayer.Character.Humanoid.WalkSpeed or 0
+	local styled = localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid") and localPlayer.Character.Humanoid:GetStyled("WalkSpeed") or 0
+
+	if arg then
+		n = walkSpeed
+		n2 = styled
+	else
+		n = math.max(n, walkSpeed)
+		n2 = math.max(n2, styled)
+	end
+end
+
+RunService.PreAnimation:Connect(fn3)
+
+task.spawn(function()
+	while task.wait() do
+		fn3()
+	end
+end)
+
+task.spawn(function()
+	while task.wait(1) do
+		remoteEvent.FireServer(Cooldown, fn2())
+		fn3(true)
+	end
+end)

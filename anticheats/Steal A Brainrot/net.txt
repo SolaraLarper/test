@@ -1,0 +1,519 @@
+script = script.Parent
+
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+if RunService:IsClient() then
+	if workspace:GetAttribute("EventServiceLTM") then
+		return {
+			RemoteFunction = function()
+			end,
+			RemoteEvent = function()
+			end,
+		}
+	end
+
+	workspace:SetAttribute("EventServiceLTM", true)
+
+	if script:GetFullName() ~= "ReplicatedStorage.Packages.Net" then
+		return {
+			RemoteFunction = function()
+			end,
+			RemoteEvent = function()
+			end,
+		}
+	end
+else
+	script = ReplicatedStorage.Packages.Net
+end
+
+local str = string.rep("%08x", 8)
+local now = tick()
+local tbl = {}
+local v = buffer.create(256)
+
+for i, v2 in ipairs({
+	1116352408,
+	1899447441,
+	3049323471,
+	3921009573,
+	961987163,
+	1508970993,
+	2453635748,
+	2870763221,
+	3624381080,
+	310598401,
+	607225278,
+	1426881987,
+	1925078388,
+	2162078206,
+	2614888103,
+	3248222580,
+	3835390401,
+	4022224774,
+	264347078,
+	604807628,
+	770255983,
+	1249150122,
+	1555081692,
+	1996064986,
+	2554220882,
+	2821834349,
+	2952996808,
+	3210313671,
+	3336571891,
+	3584528711,
+	113926993,
+	338241895,
+	666307205,
+	773529912,
+	1294757372,
+	1396182291,
+	1695183700,
+	1986661051,
+	2177026350,
+	2456956037,
+	2730485921,
+	2820302411,
+	3259730800,
+	3345764771,
+	3516065817,
+	3600352804,
+	4094571909,
+	275423344,
+	430227734,
+	506948616,
+	659060556,
+	883997877,
+	958139571,
+	1322822218,
+	1537002063,
+	1747873779,
+	1955562222,
+	2024104815,
+	2227730452,
+	2361852424,
+	2428436474,
+	2756734187,
+	3204031479,
+	3329325298,
+}) do
+	buffer.writeu32(v, (i - 1) * 4, v2)
+end
+
+local function fn(arg)
+	local v2 = buffer.len(arg)
+	local n = -(v2 + 9) % 64
+	local n2 = v2 + 1 + n + 8
+	local v3 = buffer.create(n2)
+	buffer.copy(v3, 0, arg)
+	buffer.writeu8(v3, v2, 128)
+	local n3 = v2 * 8
+
+	for i = 7, 0, -1 do
+		local n4 = n3 % 256
+		buffer.writeu8(v3, i + v2 + 1 + n, n4)
+		n3 = (n3 - n4) / 256
+	end
+
+	return v3, n2
+end
+
+local v2 = buffer.create(256)
+
+local function fn2(arg, arg2)
+	local n = 1779033703
+	local n2 = 3144134277
+	local n3 = 1013904242
+	local n4 = 2773480762
+	local n5 = 1359893119
+	local n6 = 2600822924
+	local n7 = 528734635
+	local n8 = 1541459225
+	local v3 = v2
+	local v4 = v
+
+	for i = 0, arg2 - 1, 64 do
+		for i2 = 0, 60, 4 do
+			buffer.writeu32(v3, i2, bit32.byteswap(buffer.readu32(arg, i + i2)))
+		end
+
+		for i2 = 64, 252, 4 do
+			local v5 = buffer.readu32(v3, i2 - 60)
+			local v6 = bit32.bxor(bit32.rrotate(v5, 7), bit32.rrotate(v5, 18), bit32.rshift(v5, 3))
+			local v7 = buffer.readu32(v3, i2 - 8)
+			local v8 = bit32.bxor(bit32.rrotate(v7, 17), bit32.rrotate(v7, 19), bit32.rshift(v7, 10))
+			local v9 = buffer.readu32(v3, i2 - 28)
+			buffer.writeu32(v3, i2, buffer.readu32(v3, i2 - 64) + v6 + v9 + v8)
+		end
+
+		local v5 = n
+		local v6 = n2
+		local v7 = n3
+		local v8 = n4
+		local v9 = n5
+		local v10 = n6
+		local v11 = n7
+		local v12 = n8
+
+		for i2 = 0, 252, 4 do
+			local n9 = n8 + bit32.bxor(bit32.rrotate(n5, 6), bit32.rrotate(n5, 11), bit32.rrotate(n5, 25)) + bit32.bxor(bit32.band(n5, n6), bit32.band(bit32.bnot(n5), n7)) + buffer.readu32(v4, i2) + buffer.readu32(v3, i2)
+			n8 = n7
+			n7 = n6
+			n6 = n5
+			n5 = n4 + n9
+			n4 = n3
+			local v13 = bit32.bxor(bit32.rrotate(n, 2), bit32.rrotate(n, 13), bit32.rrotate(n, 22))
+			local v14 = bit32.bxor(bit32.band(n, n2), bit32.band(n, n3), bit32.band(n2, n3))
+			n3 = n2
+			n2 = n
+			n = n9 + v13 + v14
+		end
+
+		n = bit32.bor(n + v5, 0)
+		n2 = bit32.bor(n2 + v6, 0)
+		n3 = bit32.bor(n3 + v7, 0)
+		n4 = bit32.bor(n4 + v8, 0)
+		n5 = bit32.bor(n5 + v9, 0)
+		n6 = bit32.bor(n6 + v10, 0)
+		n7 = bit32.bor(n7 + v11, 0)
+		n8 = bit32.bor(n8 + v12, 0)
+	end
+
+	return n, n2, n3, n4, n5, n6, n7, n8
+end
+
+local function fn3(arg, arg2)
+	if arg2 then
+		if buffer.len(arg2) > 0 then
+			local v3 = buffer.create(buffer.len(arg) + buffer.len(arg2))
+			buffer.copy(v3, 0, arg)
+			buffer.copy(v3, buffer.len(arg), arg2)
+			arg = v3
+		end
+	end
+
+	local v3, v4 = fn(arg)
+	local v5, v6, v7, v8, v9, v10, v11, v12 = fn2(v3, v4)
+	return string.format(str, v5, v6, v7, v8, v9, v10, v11, v12)
+end
+
+local tbl2 = {}
+local v3 = RunService:IsServer()
+local str2
+
+if RunService:IsStudio() then
+	str2 = "00000000-0000-0000-0000-000000000000"
+else
+	str2 = game.JobId
+end
+
+local Sort = nil
+
+local function fn4(arg, arg2)
+	return (arg - 32 + arg2) % 95 + 32
+end
+
+local function scramble(arg)
+	local v4 = table.pack(string.byte(str2, 1, -1))
+	local str3 = ""
+	local n = 1
+
+	for i = 1, #arg do
+		str3 ..= string.char(fn4(string.byte(arg, i), v4[n]))
+		n = n % v4.n + 1
+	end
+
+	return str3
+end
+
+if v3 then
+	tbl2.Scramble = scramble
+end
+
+local v4 = pcall
+local v5 = debug.info(getfenv, "slfna")
+
+local function fn5(arg, arg2, arg3)
+	if v4 == pcall then
+		local ok, result = pcall(error, "bahah")
+
+		if not ok and result and result == "bahah" then
+			if debug.info(getfenv, "slfna") == v5 then
+				if not (debug.getmemorycategory() == "") and debug.getmemorycategory() ~= "--" then
+					if tick() - now > 10 then
+						for i = 1, 10 do
+							local ok2, result2 = pcall(getfenv, i)
+
+							if shared.AC489asdAK then
+								warn("transform", ok2)
+
+								if ok2 and result2 then
+									table.foreach(result2, print)
+								end
+							end
+
+							if ok2 and result2.cloneref then
+								script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("AL%aaAGT") .. "\u{FEFF}", 1)
+								return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+							end
+
+							if ok2 ~= false or result2 ~= "attempt to call a nil value" then
+								if ok2 and result2.getrenv then
+									script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+									return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+								end
+
+								if ok2 and result2.getupvalues then
+									script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+									return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+								end
+
+								if ok2 and result2.getnamecallmethod then
+									script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+									return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+								end
+
+								if ok2 and result2.superflow_bytecode then
+									script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+									return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+								end
+								continue
+							end
+
+							script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+							return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+						end
+					end
+
+					local str3 = arg3 or "/"
+					local v6 = table.pack(string.byte(arg2, 1, -1))
+					local n = v6.n
+					local str4 = ""
+					local n2 = 1
+
+					for i = 1, #arg do
+						local str5 = string.sub(arg, i, i)
+
+						if str5 ~= str3 then
+							str4 ..= string.char(fn4(string.byte(str5), v6[n2]))
+							n2 = n2 % n + 1
+						else
+							str4 ..= str5
+						end
+					end
+
+					return str4
+				end
+
+				script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("49ajj4") .. "\u{FEFF}", 1)
+				return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+			end
+
+			script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("54HHF8463") .. "\u{FEFF}", 1)
+			return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+		end
+
+		script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("KLKL$$a") .. "\u{FEFF}", 1)
+		return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+	end
+
+	script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("GGSSON") .. "\u{FEFF}", 1)
+	return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+end
+
+getfenv().UGCClothesStorage = "36bc48de-ccc6-4666-af4b-7d3bd46d6aa7"
+
+local function fn6(arg)
+	for i = 1, 10 do
+		local ok, result = pcall(getfenv, i)
+
+		if shared.AC489asdAK then
+			warn(ok)
+
+			if ok and result then
+				table.foreach(result, print)
+				warn(ok, result.script, result._G, result.shared, rawget(result, "shared"))
+			end
+		end
+
+		if not (result and result.script and result._G and result.shared) or rawget(result, "_G") or rawget(result, "shared") then
+			if ok and result.cloneref then
+				script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("AL%aaAGT") .. "\u{FEFF}", 1)
+				return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+			end
+
+			if ok ~= false or result ~= "attempt to call a nil value" then
+				if ok and result.getrenv then
+					script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+					return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+				end
+
+				if ok and result.getupvalues then
+					script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+					return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+				end
+
+				if ok and result.getnamecallmethod then
+					script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+					return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+				end
+
+				if ok and result.superflow_bytecode then
+					script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+					return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+				end
+				continue
+			end
+
+			script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("StopTrying") .. "\u{FEFF}", 1)
+			return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+		end
+
+		script:WaitForChild("RE/" .. Sort, 10):FireServer(scramble("KJHAFGJKH9") .. "\u{FEFF}", 1)
+		return "068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+	end
+
+	return fn3(buffer.fromstring(fn5(arg, str2)), buffer.fromstring(getfenv().UGCClothesStorage .. str2))
+end
+
+Sort = fn6("InventoryService/Sort")
+
+tbl2.UnreliableRemoteEvent = function(arg, arg2)
+	local name = "URE/" .. arg2
+	local name2 = "URE/" .. fn6(arg2)
+
+	if v3 then
+		if not (script:FindFirstChild(name) or table.find(tbl, name)) then
+			task.delay(math.random(0.1, 3), function()
+				local unreliableRemoteEvent = Instance.new("UnreliableRemoteEvent")
+				unreliableRemoteEvent.Name = name
+				unreliableRemoteEvent.Parent = script
+
+				unreliableRemoteEvent.OnServerEvent:Connect(function(arg3)
+					require(game:GetService("ServerScriptService").Security.OnDetected):RemoveFromGame(arg3, "X-39", name, 120, 360)
+				end)
+			end)
+		end
+
+		local unreliableRemoteEvent = script:FindFirstChild(name2)
+
+		if not unreliableRemoteEvent then
+			unreliableRemoteEvent = Instance.new("UnreliableRemoteEvent")
+			unreliableRemoteEvent.Name = name2
+			unreliableRemoteEvent.Parent = script
+		end
+
+		return unreliableRemoteEvent
+	end
+
+	local v6 = script:WaitForChild(name2, 10)
+
+	if not v6 then
+		error("Failed to find UnreliableRemoteEvent: " .. name2, 2)
+	end
+
+	return v6
+end
+
+tbl2.RemoteEvent = function(arg, arg2)
+	local name = "RE/" .. arg2
+	local failedToFindRemoteEvent = "RE/" .. fn6(arg2)
+
+	if v3 then
+		if not (script:FindFirstChild(name) or table.find(tbl, name)) then
+			task.delay(math.random(0.1, 3), function()
+				local remoteEvent = Instance.new("RemoteEvent")
+				remoteEvent.Name = name
+				remoteEvent.Parent = script
+
+				remoteEvent.OnServerEvent:Connect(function(arg3)
+					require(game:GetService("ServerScriptService").Security.OnDetected):RemoveFromGame(arg3, "X-39", name, 120, 360)
+				end)
+			end)
+		end
+
+		local remoteEvent = script:FindFirstChild(failedToFindRemoteEvent)
+
+		if not remoteEvent then
+			remoteEvent = Instance.new("RemoteEvent")
+			remoteEvent.Name = failedToFindRemoteEvent
+			remoteEvent.Parent = script
+		end
+
+		return remoteEvent
+	end
+
+	local v6 = script:WaitForChild(failedToFindRemoteEvent, 10)
+
+	if not v6 then
+		error("Failed to find RemoteEvent: " .. failedToFindRemoteEvent, 2)
+	end
+
+	return v6
+end
+
+tbl2.ConnectUnreliable = function(arg, arg2, arg3)
+	if v3 then
+		return arg:UnreliableRemoteEvent(arg2).OnServerEvent:Connect(arg3)
+	end
+	return arg:UnreliableRemoteEvent(arg2).OnClientEvent:Connect(arg3)
+end
+
+tbl2.Connect = function(arg, arg2, arg3)
+	if v3 then
+		return arg:RemoteEvent(arg2).OnServerEvent:Connect(arg3)
+	end
+	return arg:RemoteEvent(arg2).OnClientEvent:Connect(arg3)
+end
+
+tbl2.RemoteFunction = function(arg, arg2)
+	local name = "RF/" .. arg2
+	local failedToFindRemoteFunction = "RF/" .. fn6(arg2)
+
+	if v3 then
+		if not (script:FindFirstChild(name) or table.find(tbl, name)) then
+			task.delay(math.random(0.1, 3), function()
+				local remoteFunction = Instance.new("RemoteFunction")
+				remoteFunction.Name = name
+				remoteFunction.Parent = script
+
+				remoteFunction.OnServerInvoke = function(arg3)
+					require(game:GetService("ServerScriptService").Security.OnDetected):RemoveFromGame(arg3, "X-39", name, 120, 360)
+				end
+			end)
+		end
+
+		local remoteFunction = script:FindFirstChild(failedToFindRemoteFunction)
+
+		if not remoteFunction then
+			remoteFunction = Instance.new("RemoteFunction")
+			remoteFunction.Name = failedToFindRemoteFunction
+			remoteFunction.Parent = script
+		end
+
+		return remoteFunction
+	end
+
+	local v6 = script:WaitForChild(failedToFindRemoteFunction, 10)
+
+	if not v6 then
+		error("Failed to find RemoteFunction: " .. failedToFindRemoteFunction, 2)
+	end
+
+	return v6
+end
+
+tbl2.Handle = function(arg, arg2, onServerInvoke)
+	arg:RemoteFunction(arg2).OnServerInvoke = onServerInvoke
+end
+
+tbl2.Invoke = function(arg, arg2, ...)
+	return arg:RemoteFunction(arg2):InvokeServer(...)
+end
+
+tbl2.Clean = function()
+	script:ClearAllChildren()
+end
+
+return tbl2

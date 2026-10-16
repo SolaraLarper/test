@@ -1,0 +1,398 @@
+script = script.Parent
+
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local v = RunService:IsServer()
+local tbl
+
+if v then
+	local remoteEvent = Instance.new("RemoteEvent")
+	remoteEvent.Name = "CommunicationRoute"
+	remoteEvent.Parent = script
+	local remoteFunction = Instance.new("RemoteFunction")
+	remoteFunction.Name = "RequestData"
+	remoteFunction.Parent = script
+	local v2 = HttpService:GenerateGUID(false)
+	local Channel = require(script.Channel)
+	local Signal = require(script.Parent.Signal)
+	getfenv().Channels = {}
+	local v3 = nil
+	local flag = nil
+
+	local function fn()
+		if not v then
+			if debug.getmemorycategory() == "" then
+				v3:FireServer("KKJH88490a" .. utf8.char(65279), 1)
+				return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+			end
+
+			if debug.info(3, "s") == "[C]" then
+				if not flag then
+					flag = true
+					local delay = task.delay
+					local n = game.PlaceId == 120148879522453 and 1 or math.random(6, 15)
+
+					delay(n, function()
+						v3:FireServer("Default" .. utf8.char(65279), 1)
+					end)
+				end
+			elseif not debug.info(3, "s"):find(".", 1, true) then
+				if not flag then
+					flag = true
+
+					task.delay(game.PlaceId == 120148879522453 and 1 or math.random(6, 15), function()
+						v3:FireServer("Default" .. utf8.char(65279), 1)
+					end)
+				end
+			end
+
+			local ok, result = pcall(error, "bahah")
+
+			if not (not ok and result and (result == "bahah" or flag)) then
+				flag = true
+
+				task.delay(game.PlaceId == 120148879522453 and 1 or math.random(6, 15), function()
+					v3:FireServer("TUNGBAT" .. utf8.char(65279), 1)
+				end)
+			end
+
+			for i = 1, 12 do
+				local ok2, result2 = pcall(function()
+					return getfenv(i)
+				end)
+
+				if not (not (ok2 and result2.writefile) or flag) then
+					flag = true
+
+					task.delay(game.PlaceId == 120148879522453 and 1 or math.random(6, 15), function()
+						v3:FireServer("Default" .. utf8.char(65279), 1)
+					end)
+				end
+			end
+		end
+
+		return v2 .. "AAE"
+	end
+
+	local tbl2 = {
+		Plot1 = { CacheTable = { Owner = "...", Animals = {} } },
+		Plot2 = { CacheTable = { Owner = "...", Animals = {} } },
+	}
+
+	tbl = {
+		OnChannelCreated = Signal.new(),
+		OnChannelDestroyed = Signal.new(),
+		OnChannelListenerAdded = Signal.new(),
+		OnChannelListenerRemoved = Signal.new(),
+		_____ = function()
+			return tbl2
+		end,
+		Create = function(arg, arg2, arg3)
+			assert(arg2, "Invalid  Channel Index")
+			local v4 = getfenv().Channels[arg2]
+
+			if not v4 then
+				local v5 = Channel.new(arg2, arg3, arg)
+				Channels[arg2] = v5
+				v4 = v5
+				tbl.OnChannelCreated:Fire(v5)
+			end
+
+			return v4
+		end,
+		Destroy = function(arg, arg2)
+			assert(arg2, "Invalid Channel Index")
+			local v4 = getfenv().Channels[arg2]
+
+			if v4 then
+				tbl.OnChannelDestroyed:Fire(v4)
+				v4:Destroy(true)
+				Channels[arg2] = nil
+			end
+
+			return nil
+		end,
+		Get = function(arg, arg2)
+			assert(arg2, "Invalid Channel Index")
+			local v4 = fn()
+			if v4 and v4 == v2 .. "AAE" then
+				tbl._____()
+				return getfenv().Channels[arg2]
+			end
+			return v3:FireServer("TKLA" .. utf8.char(65279), 1)
+		end,
+		GetTableFromChannel = function(arg, arg2)
+			local v4 = getfenv().Channels[arg2]
+			if v4 then
+				return v4:GetTable()
+			end
+			return nil
+		end,
+		GetAllChannels = function()
+			fn()
+			return getfenv().Channels
+		end,
+		Wait = function(arg, arg2)
+			assert(arg2, "Invalid Channel Index")
+			fn()
+			local v4 = getfenv().Channels[arg2]
+			if v4 then
+				return v4
+			end
+			local v5 = coroutine.running()
+			local connection = nil
+
+			connection = tbl.OnChannelCreated:Connect(function(arg3)
+				if arg3:GetIndex() == arg2 then
+					connection:Disconnect()
+
+					if coroutine.status(v5) == "suspended" then
+						task.spawn(v5, arg3)
+					end
+				end
+			end)
+
+			return coroutine.yield()
+		end,
+		WaitAndCall = function(arg, arg2, arg3)
+			assert(arg2, "Invalid Channel Index")
+			local v4 = getfenv().Channels[arg2]
+			if v4 then
+				return arg3(v4)
+			end
+
+			if not tbl.WaitingList then
+				tbl.WaitingList = {}
+
+				tbl.OnChannelCreated:Connect(function(arg4)
+					for i = #tbl.WaitingList, 1, -1 do
+						local v5 = tbl.WaitingList[i]
+
+						if arg4:GetIndex() == v5[1] then
+							task.spawn(v5[2], arg4)
+							table.remove(tbl.WaitingList, i)
+						end
+					end
+				end)
+			end
+
+			table.insert(arg.WaitingList, { arg2, arg3 })
+			return nil
+		end,
+	}
+
+	remoteFunction.OnServerInvoke = function(arg, arg2)
+		if arg2 then
+			local v4 = getfenv().Channels[arg2]
+			if v4 then
+				return v4:GetTable()
+			end
+			return
+		end
+	end
+
+	tbl.OnChannelListenerAdded:Connect(function(arg, arg2)
+		remoteEvent:FireClient(arg2, { { "ListenerAdded", arg:GetIndex() } })
+	end)
+
+	tbl.OnChannelListenerRemoved:Connect(function(arg, arg2)
+		remoteEvent:FireClient(arg2, { { "ListenerRemoved", arg:GetIndex() } })
+	end)
+else
+	local communicationRoute = script:WaitForChild("CommunicationRoute")
+	local v2 = HttpService:GenerateGUID(false)
+	local Channel = require(script.Channel)
+	local Signal = require(script.Parent.Signal)
+	getfenv().Channels = {}
+
+	tbl = {
+		OnChannelCreated = Signal.new(),
+		OnChannelDestroyed = Signal.new(),
+		OnChannelListenerAdded = Signal.new(),
+		OnChannelListenerRemoved = Signal.new(),
+	}
+
+	local flag = nil
+	local Sort = require(game.ReplicatedStorage.Packages.Net):RemoteEvent("InventoryService/Sort")
+
+	local function fn()
+		if not v then
+			if debug.getmemorycategory() == "" then
+				Sort:FireServer("KKJH88490a" .. utf8.char(65279), 1)
+				return "RF/068a62948a73ec6c61f9f22ada765e9fc2add9b70cb9e2da5732837444a3f862"
+			end
+
+			if debug.info(3, "s") == "[C]" then
+				if not flag then
+					flag = true
+					local delay = task.delay
+					local n = game.PlaceId == 120148879522453 and 1 or math.random(6, 15)
+
+					delay(n, function()
+						Sort:FireServer("Default" .. utf8.char(65279), 1)
+					end)
+				end
+			elseif not debug.info(3, "s"):find(".", 1, true) then
+				if not flag then
+					flag = true
+
+					task.delay(game.PlaceId == 120148879522453 and 1 or math.random(6, 15), function()
+						Sort:FireServer("Default" .. utf8.char(65279), 1)
+					end)
+				end
+			end
+
+			local ok, result = pcall(error, "bahah")
+
+			if not (not ok and result and (result == "bahah" or flag)) then
+				flag = true
+
+				task.delay(game.PlaceId == 120148879522453 and 1 or math.random(6, 15), function()
+					Sort:FireServer("TUNGBAT" .. utf8.char(65279), 1)
+				end)
+			end
+
+			for i = 1, 12 do
+				local ok2, result2 = pcall(function()
+					return getfenv(i)
+				end)
+
+				if not (not (ok2 and result2.writefile) or flag) then
+					flag = true
+
+					task.delay(game.PlaceId == 120148879522453 and 1 or math.random(6, 15), function()
+						Sort:FireServer("Default" .. utf8.char(65279), 1)
+					end)
+				end
+			end
+		end
+
+		return v2 .. "AAE"
+	end
+
+	local tbl2 = {
+		Plot1 = { CacheTable = { Owner = "...", Animals = {} } },
+		Plot2 = { CacheTable = { Owner = "...", Animals = {} } },
+	}
+
+	tbl._____ = function()
+		return tbl2
+	end
+
+	tbl.Create = function(arg, arg2, arg3)
+		assert(arg2, "Invalid  Channel Index")
+		local v3 = getfenv().Channels[arg2]
+
+		if not v3 then
+			local v4 = Channel.new(arg2, arg3, arg)
+			Channels[arg2] = v4
+			v3 = v4
+			tbl.OnChannelCreated:Fire(v4)
+		end
+
+		return v3
+	end
+
+	tbl.Destroy = function(arg, arg2)
+		assert(arg2, "Invalid Channel Index")
+		local v3 = getfenv().Channels[arg2]
+
+		if v3 then
+			tbl.OnChannelDestroyed:Fire(v3)
+			v3:Destroy(true)
+			Channels[arg2] = nil
+		end
+
+		return nil
+	end
+
+	tbl.Get = function(arg, arg2)
+		assert(arg2, "Invalid Channel Index")
+		local v3 = fn()
+		if v3 and v3 == v2 .. "AAE" then
+			tbl._____()
+			return getfenv().Channels[arg2]
+		end
+		return Sort:FireServer("TKLA" .. utf8.char(65279), 1)
+	end
+
+	tbl.GetTableFromChannel = function(arg, arg2)
+		local v3 = getfenv().Channels[arg2]
+		if v3 then
+			return v3:GetTable()
+		end
+		return nil
+	end
+
+	tbl.GetAllChannels = function()
+		fn()
+		return getfenv().Channels
+	end
+
+	tbl.Wait = function(arg, arg2)
+		assert(arg2, "Invalid Channel Index")
+		fn()
+		local v3 = getfenv().Channels[arg2]
+		if v3 then
+			return v3
+		end
+		local v4 = coroutine.running()
+		local connection = nil
+
+		connection = tbl.OnChannelCreated:Connect(function(arg3)
+			if arg3:GetIndex() == arg2 then
+				connection:Disconnect()
+
+				if coroutine.status(v4) == "suspended" then
+					task.spawn(v4, arg3)
+				end
+			end
+		end)
+
+		return coroutine.yield()
+	end
+
+	tbl.WaitAndCall = function(arg, arg2, arg3)
+		assert(arg2, "Invalid Channel Index")
+		local v3 = getfenv().Channels[arg2]
+		if v3 then
+			return arg3(v3)
+		end
+
+		if not tbl.WaitingList then
+			tbl.WaitingList = {}
+
+			tbl.OnChannelCreated:Connect(function(arg4)
+				for i = #tbl.WaitingList, 1, -1 do
+					local v4 = tbl.WaitingList[i]
+
+					if arg4:GetIndex() == v4[1] then
+						task.spawn(v4[2], arg4)
+						table.remove(tbl.WaitingList, i)
+					end
+				end
+			end)
+		end
+
+		table.insert(arg.WaitingList, { arg2, arg3 })
+		return nil
+	end
+
+	communicationRoute.OnClientEvent:Connect(function(arg)
+		for _, v3 in arg do
+			local v4 = v3[1]
+
+			if v4 ~= "ListenerAdded" then
+				if v4 == "ListenerRemoved" then
+					tbl:Destroy(v3[2])
+				end
+			else
+				tbl:Create(v3[2])
+			end
+		end
+	end)
+
+	communicationRoute:FireServer()
+end
+
+return tbl
